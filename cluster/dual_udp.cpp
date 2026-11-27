@@ -10,7 +10,7 @@ int main(int argc,char** argv) {
     WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup failed");
 #endif
     {
-        Udp udp(unsigned(own),unsigned(other));
+        Udp udp{unsigned(own),unsigned(other)};
         cluster::dual::Peer peer(77,leader);peer.network(true);
         const uint32_t start=ms();
         const auto now=[&](){return ms()+(leader?0u:123456u);};

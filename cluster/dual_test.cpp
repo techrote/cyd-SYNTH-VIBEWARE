@@ -46,7 +46,18 @@ int main(){
     check(follower.stats.local>=5);check(both>650);check(off>300);
     check(follower.stats.rejected>0);
     check(follower.stats.max_late_ms<=2);
+    // Foreign epoch, impossible timestamps and wrong role must not enter the queue.
+    auto wrong=frame(Kind::pulse_event,78,999);
+    put32(wrong.bytes.data()+header,t+180);put32(wrong.bytes.data()+header+4,3);put32(wrong.bytes.data()+header+8,period);
+    const auto rejected=follower.stats.rejected;
+    follower.receive(wrong,ft(t),b);check(follower.stats.rejected==rejected+1);
+    auto late=frame(Kind::pulse_event,77,999);
+    put32(late.bytes.data()+header,t-100);put32(late.bytes.data()+header+4,3);put32(late.bytes.data()+header+8,period);
+    follower.receive(late,ft(t),b);check(follower.stats.rejected==rejected+2);
     follower.network(false);check(follower.sound(ft(t))==0);check(follower.queued()==0);
+    const auto probes=follower.stats.probes;
+    for(unsigned i=0;i<1000;++i)follower.tick(ft(t+i),b);
+    check(follower.stats.probes==probes);
     std::cout<<"dual checks="<<checks<<" samples="<<follower.stats.samples
       <<" remote_pulses="<<follower.stats.played<<" local_pulses="<<follower.stats.local
       <<" overlap_ms="<<both<<" outage_sound_ms="<<off<<" max_late_ms="<<follower.stats.max_late_ms<<'\n';
