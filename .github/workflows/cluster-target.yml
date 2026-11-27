@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker]
+        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,6 +33,12 @@ jobs:
           pio pkg list -d cluster/firmware -e "$profile" > evidence/packages.txt
           cp "$src/firmware.elf" "$src/firmware.bin" "$src/firmware.map" evidence/
           printf '%s\n' "$profile" > evidence/profile.txt
+          if [ -d "cluster/firmware/.pio/libdeps/$profile" ]; then
+            mkdir -p evidence/dependency-notices
+            cd "cluster/firmware/.pio/libdeps/$profile"
+            find . -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' \) -exec cp --parents '{}' "$GITHUB_WORKSPACE/evidence/dependency-notices/" \;
+            cd "$GITHUB_WORKSPACE"
+          fi
           (cd evidence && sha256sum firmware.elf firmware.bin firmware.map > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
