@@ -1,0 +1,56 @@
+name: Cluster native qualification
+on:
+  pull_request:
+    paths:
+      - 'cluster/**'
+      - '.github/workflows/cluster.yml'
+  push:
+    branches: ['hybrid/cyd-cluster-001']
+    paths:
+      - 'cluster/**'
+      - '.github/workflows/cluster.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/cluster --config Release
+      - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkg = 'cluster-package'
+          New-Item -ItemType Directory -Path $pkg | Out-Null
+          Copy-Item build/cluster/Release/cluster_native.exe $pkg
+          Copy-Item cluster/README.md $pkg
+          git rev-parse HEAD | Set-Content "$pkg/source-commit.txt"
+          Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip
+          Expand-Archive cluster-native-windows.zip 'extracted cluster'
+          & './extracted cluster/cluster_native.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted replay failed' }
+          (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-native-windows
+          path: |
+            cluster-native-windows.zip
+            cluster-native-windows.sha256
+          if-no-files-found: error
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/native.cpp -o cluster_sanitized
+      - run: ./cluster_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
