@@ -30,12 +30,16 @@ jobs:
           $pkg = 'cluster-package'
           New-Item -ItemType Directory -Path $pkg | Out-Null
           Copy-Item build/cluster/Release/cluster_native.exe $pkg
+          Copy-Item build/cluster/Release/cluster_udp.exe $pkg
+          Copy-Item cluster/udp_test.py $pkg
           Copy-Item cluster/README.md $pkg
           git rev-parse HEAD | Set-Content "$pkg/source-commit.txt"
           Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip
           Expand-Archive cluster-native-windows.zip 'extracted cluster'
           & './extracted cluster/cluster_native.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted replay failed' }
+          python './extracted cluster/udp_test.py' './extracted cluster/cluster_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted UDP loopback failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
