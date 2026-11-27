@@ -4,11 +4,7 @@ on:
     paths:
       - 'cluster/**'
       - '.github/workflows/cluster.yml'
-  push:
-    branches: ['hybrid/cyd-cluster-001']
-    paths:
-      - 'cluster/**'
-      - '.github/workflows/cluster.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

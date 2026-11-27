@@ -29,7 +29,7 @@ Worker worker(1);
 bool running=false;
 uint32_t last_job=0, next_seed=1;
 int64_t started_us=0;
-Job job{};
+Job job{}, active_job{};
 char line[96]{};
 std::size_t used=0;
 bool overflow=false;
@@ -136,12 +136,12 @@ void completed(Completion c) {
     if(c==Completion::none) return;
     const auto elapsed=esp_timer_get_time()-started_us;
     const auto before=esp_timer_get_time();
-    const auto expected=compute(job);
+    const auto expected=compute(active_job);
     const auto verify_us=esp_timer_get_time()-before;
     uint32_t digest=2166136261u;
     for(auto x:link.grid()) {digest^=x;digest*=16777619u;}
     Serial.printf("job seed=%lu mode=%s elapsed_us=%lld verify_local_us=%lld match=%u grid=%08lx\n",
-        static_cast<unsigned long>(job.seed),c==Completion::remote?"remote":"local",
+        static_cast<unsigned long>(active_job.seed),c==Completion::remote?"remote":"local",
         static_cast<long long>(elapsed),static_cast<long long>(verify_us),
         unsigned(link.grid()==expected),static_cast<unsigned long>(digest));
     if(link.grid()!=expected) {running=false;link.disconnect();remote_enabled=false;Serial.println("MISMATCH: stopped");}
@@ -174,8 +174,9 @@ void loop() {
     completed(link.tick(millis(),send_frame));
     if(running&&!link.pending()&&uint32_t(millis()-last_job)>=250) {
         last_job=millis();job.seed=next_seed++;job.particles=512;job.steps=64;
+        active_job=job;
         started_us=esp_timer_get_time();
-        if(!link.start(job,last_job,60,send_frame)) {running=false;Serial.println("start failed");}
+        if(!link.start(active_job,last_job,60,send_frame)) {running=false;Serial.println("start failed");}
     }
 #endif
     delay(1);
