@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field]
+        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field, cyd-dual]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -7,7 +7,7 @@
 namespace cluster {
 constexpr std::size_t header = 16, max_payload = 128, max_frame = header + max_payload;
 constexpr uint8_t version = 1;
-enum class Kind : uint8_t { hello = 1, ready, job, result };
+enum class Kind : uint8_t { hello = 1, ready, job, result, sync_request, sync_reply, pulse_event };
 struct Frame {
     std::array<uint8_t, max_frame> bytes{};
     std::size_t size = 0;
@@ -19,7 +19,8 @@ inline uint32_t get32(const uint8_t* p) { return uint32_t(get16(p)) | (uint32_t(
 struct View { Kind kind{}; uint32_t epoch=0, seq=0; const uint8_t* payload=nullptr; };
 inline std::size_t payload_size(Kind k) {
     switch(k) { case Kind::hello: return 0; case Kind::ready: return 4;
-        case Kind::job: return 12; case Kind::result: return 128; }
+        case Kind::job: return 12; case Kind::result: return 128;
+        case Kind::sync_request: return 4; case Kind::sync_reply: case Kind::pulse_event: return 12; }
     return max_payload+1;
 }
 inline Frame frame(Kind k, uint32_t epoch, uint32_t seq) {

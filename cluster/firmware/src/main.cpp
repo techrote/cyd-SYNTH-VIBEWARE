@@ -15,6 +15,9 @@
 #include <cstring>
 #if CLUSTER_FIELD
 #include "field_panel.hpp"
+#if CLUSTER_DUAL
+#include "../../dual.hpp"
+#endif
 #endif
 
 using namespace cluster;
@@ -32,6 +35,9 @@ Worker worker(1);
 #if CLUSTER_FIELD
 av::Field interactive(1);
 field_panel::Panel panel;
+#if CLUSTER_DUAL
+dual::Peer musical;
+#endif
 #endif
 bool running=false;
 uint32_t last_job=0, next_seed=1;
@@ -94,7 +100,12 @@ bool provision(const Pairing& p) {
     controller_link=Link(p.epoch); worker=Worker(p.epoch);
     paired=true; remote_enabled=true;
 #if CLUSTER_FIELD
-    panel.mute();interactive=av::Field(p.epoch);interactive.remote(true);
+    panel.mute();interactive=av::Field(p.epoch);
+#if CLUSTER_DUAL
+    musical=dual::Peer(p.epoch,own<peer);musical.network(true);
+#else
+    interactive.remote(true);
+#endif
 #endif
     return true;
 }
@@ -107,6 +118,10 @@ void status() {
     const auto& stats=interactive.stats();
     Serial.printf("ready=%u pending=%u remote=%lu local=%lu retry=%lu\n",unsigned(interactive.ready()),unsigned(interactive.pending()),static_cast<unsigned long>(stats.remote),static_cast<unsigned long>(stats.local),static_cast<unsigned long>(stats.retries));
     panel.status();
+#if CLUSTER_DUAL
+    const auto& d=musical.stats;
+    Serial.printf("dual leader=%u synced=%u ppm=%ld samples=%lu sent=%lu played=%lu local=%lu reject=%lu late_ms=%lu\\n",unsigned(musical.leader()),unsigned(musical.synchronized(millis())),static_cast<long>(musical.clock.ppm),static_cast<unsigned long>(d.samples),static_cast<unsigned long>(d.events_sent),static_cast<unsigned long>(d.played),static_cast<unsigned long>(d.local),static_cast<unsigned long>(d.rejected),static_cast<unsigned long>(d.max_late_ms));
+#endif
 #elif CLUSTER_COORDINATOR
     Serial.printf("ready=%u pending=%u remote=%lu local=%lu retry=%lu hello=%lu accepted=%lu busy=%lu\n",
         unsigned(controller_link.ready()),unsigned(controller_link.pending()),static_cast<unsigned long>(controller_link.stats.remote),
@@ -125,8 +140,13 @@ void command(const char* text,std::size_t length) {
     }
     if(std::strcmp(text,"status")==0) {status();return;}
 #if CLUSTER_FIELD
+#if CLUSTER_DUAL
+    if(std::strcmp(text,"local")==0) {remote_enabled=false;musical.network(false);return;}
+    if(std::strcmp(text,"remote")==0) {remote_enabled=paired;musical.network(paired);return;}
+#else
     if(std::strcmp(text,"local")==0) {remote_enabled=false;interactive.remote(false);return;}
     if(std::strcmp(text,"remote")==0) {remote_enabled=paired;interactive.remote(paired);return;}
+#endif
     if(std::strcmp(text,"audio on")==0) {Serial.println(panel.arm()?"audio armed; touch for sound":"audio arm failed");return;}
     if(std::strcmp(text,"mute")==0) {panel.mute();Serial.println("muted/disarmed");return;}
 #elif CLUSTER_COORDINATOR
@@ -191,7 +211,11 @@ void loop() {
         Frame f; if(!rx_queue||xQueueReceive(rx_queue,&f,0)!=pdTRUE) break;
         if(!remote_enabled) continue;
 #if CLUSTER_FIELD
+#if CLUSTER_DUAL
+        musical.receive(f,millis(),send_frame);
+#else
         interactive.receive(f,millis());
+#endif
 #elif CLUSTER_COORDINATOR
         completed(controller_link.receive(f,millis()));
 #else
@@ -200,7 +224,12 @@ void loop() {
 #endif
     }
 #if CLUSTER_FIELD
-    const uint32_t now=millis();panel.input(interactive,now);interactive.tick(now,send_frame);panel.output(interactive,millis());
+    const uint32_t now=millis();panel.input(interactive,now);interactive.tick(now,send_frame);
+#if CLUSTER_DUAL
+    musical.tick(millis(),send_frame);panel.output(interactive,millis(),true,musical.sound(millis()));
+#else
+    panel.output(interactive,millis());
+#endif
 #elif CLUSTER_COORDINATOR
     completed(controller_link.tick(millis(),send_frame));
     if(running&&!controller_link.pending()&&uint32_t(millis()-last_job)>=250) {

@@ -29,6 +29,9 @@ jobs:
           Copy-Item build/cluster/Release/cluster_udp.exe $pkg
           Copy-Item build/cluster/Release/cluster_field.exe $pkg
           Copy-Item build/cluster/Release/cluster_field_replay.exe $pkg
+          Copy-Item build/cluster/Release/cluster_dual_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_dual_udp.exe $pkg
+          Copy-Item cluster/dual_udp_test.py $pkg
           Copy-Item cluster/udp_test.py $pkg
           Copy-Item cluster/field_udp_smoke.py $pkg
           & "$pkg/cluster_field_replay.exe" "$pkg/field-demo"
@@ -47,6 +50,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI smoke failed' }
           python './extracted cluster/field_udp_smoke.py' './extracted cluster/cluster_udp.exe' './extracted cluster/cluster_field.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI UDP smoke failed' }
+          & './extracted cluster/cluster_dual_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted dual replay failed' }
+          python './extracted cluster/dual_udp_test.py' './extracted cluster/cluster_dual_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted dual UDP failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -68,6 +75,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/field_replay.cpp -o field_sanitized
       - run: ./field_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/dual_test.cpp -o dual_sanitized
+      - run: ./dual_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1

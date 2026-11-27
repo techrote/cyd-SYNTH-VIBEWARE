@@ -113,8 +113,8 @@ public:
         }
         field.gate(contact_&&armed_&&uint32_t(now-last_touch_)<=40);
     }
-    void output(const av::Field& field,uint32_t now) {
-        word_.store(armed_&&contact_&&uint32_t(now-last_touch_)<=40?field.sound():0,std::memory_order_release);
+    void output(const av::Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0) {
+        word_.store(armed_&&contact_&&uint32_t(now-last_touch_)<=40?(timed?timed_word:field.sound()):0,std::memory_order_release);
         lease_.store(now,std::memory_order_release);
         if(!display_)return;
         if(y_==av::height) {
@@ -132,7 +132,7 @@ public:
         if(y_==av::height) {
             screen_.fillRect(0,224,320,16,uint16_t(0));
             screen_.setTextColor(uint16_t(0xffff));screen_.setTextSize(1);
-            screen_.drawString(snapshot_remote_?"REMOTE":"LOCAL",3,227);
+            screen_.drawString(timed?"DUAL":(snapshot_remote_?"REMOTE":"LOCAL"),3,227);
             screen_.drawString(audio_fault_.load()?"AUDIO FAULT":(armed_?"AUDIO ARMED":"MUTED"),90,227);
             ++frames_;
         }
