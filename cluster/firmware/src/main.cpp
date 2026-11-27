@@ -1,0 +1,182 @@
+// Experimental serial-controlled compute diagnostic, not a display/audio firmware.
+// Arduino ESP32 2.0.17 / IDF 4.4.7 ESP-NOW API, fixed unicast peer, radio opt-in.
+#include <Arduino.h>
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <esp_system.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include "../../link.hpp"
+#include "../../pairing.hpp"
+
+using namespace cluster;
+namespace {
+constexpr uint8_t channel=6;
+constexpr unsigned rx_depth=8;
+StaticQueue_t rx_queue_storage;
+alignas(Frame) uint8_t rx_storage[rx_depth*sizeof(Frame)];
+QueueHandle_t rx_queue=nullptr;
+std::array<uint8_t,6> peer{}, own{};
+std::atomic<uint32_t> tx_busy{0}, tx_fail{0}, rx_drop{0}, rx_reject{0};
+bool paired=false, attempted=false, remote_enabled=false;
+Link link(1);
+Worker worker(1);
+bool running=false;
+uint32_t last_job=0, next_seed=1;
+int64_t started_us=0;
+Job job{};
+char line[96]{};
+std::size_t used=0;
+bool overflow=false;
+
+void on_receive(const uint8_t* mac,const uint8_t* bytes,int n) {
+    if(!mac||!bytes||std::memcmp(mac,peer.data(),peer.size())||n<int(header)||n>int(max_frame)) {
+        rx_reject.fetch_add(1,std::memory_order_relaxed); return;
+    }
+    Frame f; f.size=std::size_t(n); std::memcpy(f.bytes.data(),bytes,f.size);
+    // Wi-Fi task, not an ISR; no compute, logging, waiting or allocation here.
+    if(xQueueSend(rx_queue,&f,0)!=pdTRUE) rx_drop.fetch_add(1,std::memory_order_relaxed);
+}
+void on_sent(const uint8_t*,esp_now_send_status_t status) {
+    if(status!=ESP_NOW_SEND_SUCCESS) tx_fail.fetch_add(1,std::memory_order_relaxed);
+    tx_busy.store(0,std::memory_order_release);
+}
+bool send_frame(const Frame& f) {
+    if(!paired||!remote_enabled||!f.size||f.size>max_frame) return false;
+    uint32_t expected=0;
+    if(!tx_busy.compare_exchange_strong(expected,1,std::memory_order_acq_rel)) return false;
+    if(esp_now_send(peer.data(),f.bytes.data(),f.size)!=ESP_OK) {
+        tx_fail.fetch_add(1,std::memory_order_relaxed);
+        tx_busy.store(0,std::memory_order_release); return false;
+    }
+    return true;
+}
+bool provision(const Pairing& p) {
+    if(attempted||p.peer==own||link.pending()||!rx_queue) return false;
+    attempted=true; peer=p.peer;
+    WiFi.persistent(false);
+    WiFi.setAutoReconnect(false);
+    if(!WiFi.mode(WIFI_STA)) return false;
+    WiFi.disconnect(false,false);
+    bool initialized=false;
+    bool ok=esp_wifi_set_channel(channel,WIFI_SECOND_CHAN_NONE)==ESP_OK;
+    if(ok) { initialized=esp_now_init()==ESP_OK; ok=initialized; }
+    if(ok) ok=esp_now_set_pmk(p.pmk.data())==ESP_OK;
+    if(ok) {
+        esp_now_peer_info_t info{};
+        std::memcpy(info.peer_addr,p.peer.data(),p.peer.size());
+        std::memcpy(info.lmk,p.lmk.data(),p.lmk.size());
+        info.channel=channel; info.ifidx=WIFI_IF_STA; info.encrypt=true;
+        ok=esp_now_add_peer(&info)==ESP_OK;
+        wipe(&info,sizeof(info));
+    }
+    if(ok) ok=esp_now_register_send_cb(on_sent)==ESP_OK;
+    if(ok) ok=esp_now_register_recv_cb(on_receive)==ESP_OK;
+    if(!ok) {
+        if(initialized) esp_now_deinit();
+        WiFi.mode(WIFI_OFF); return false;
+    }
+    link=Link(p.epoch); worker=Worker(p.epoch);
+    paired=true; remote_enabled=true; return true;
+}
+void status() {
+    Serial.printf("paired=%u remote_enabled=%u tx_busy=%lu tx_fail=%lu rx_drop=%lu rx_reject=%lu heap=%u min_heap=%u\n",
+        unsigned(paired),unsigned(remote_enabled),static_cast<unsigned long>(tx_busy.load()),
+        static_cast<unsigned long>(tx_fail.load()),static_cast<unsigned long>(rx_drop.load()),
+        static_cast<unsigned long>(rx_reject.load()),unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()));
+#if CLUSTER_COORDINATOR
+    Serial.printf("ready=%u pending=%u remote=%lu local=%lu retry=%lu hello=%lu accepted=%lu busy=%lu\n",
+        unsigned(link.ready()),unsigned(link.pending()),static_cast<unsigned long>(link.stats.remote),
+        static_cast<unsigned long>(link.stats.local),static_cast<unsigned long>(link.stats.retries),
+        static_cast<unsigned long>(link.stats.hello),static_cast<unsigned long>(link.stats.sent),
+        static_cast<unsigned long>(link.stats.busy));
+#endif
+}
+void command(const char* text,std::size_t length) {
+    if(length>=5&&std::memcmp(text,"pair ",5)==0) {
+        Pairing p;
+        const bool ok=parse_pairing(text,length,p)&&provision(p);
+        wipe(&p,sizeof(p));
+        Serial.println(ok?"pair configured (encrypted unicast requested)":"pair rejected or initialization failed; reboot before retry if attempted");
+        return;
+    }
+    if(std::strcmp(text,"status")==0) {status();return;}
+#if CLUSTER_COORDINATOR
+    if(std::strcmp(text,"local")==0) {remote_enabled=false;link.disconnect();Serial.println("local jobs; radio remains initialized if paired");return;}
+    if(std::strcmp(text,"remote")==0) {remote_enabled=paired;Serial.println(remote_enabled?"remote enabled":"pair first");return;}
+    if(std::strcmp(text,"run")==0&&!link.pending()) {next_seed=1;running=true;last_job=millis()-250u;return;}
+    if(std::strcmp(text,"stop")==0) {running=false;return;}
+    unsigned x=0,y=0; char extra=0;
+    if(std::sscanf(text,"xy %u %u %c",&x,&y,&extra)==2&&x<=65535&&y<=65535) {
+        job.x=uint16_t(x);job.y=uint16_t(y);return;
+    }
+#endif
+    Serial.println("unknown or busy command");
+}
+void serial_poll() {
+    for(unsigned i=0;i<64&&Serial.available()>0;++i) {
+        const int c=Serial.read();
+        if(c=='\n') {
+            if(!overflow) {line[used]=0;command(line,used);}
+            else Serial.println("line too long");
+            wipe(line,sizeof(line));used=0;overflow=false;
+        } else if(c!='\r') {
+            if(c<32||c>126||used>=sizeof(line)-1) overflow=true;
+            else if(!overflow) line[used++]=char(c);
+        }
+    }
+}
+#if CLUSTER_COORDINATOR
+void completed(Completion c) {
+    if(c==Completion::none) return;
+    const auto elapsed=esp_timer_get_time()-started_us;
+    const auto before=esp_timer_get_time();
+    const auto expected=compute(job);
+    const auto verify_us=esp_timer_get_time()-before;
+    uint32_t digest=2166136261u;
+    for(auto x:link.grid()) {digest^=x;digest*=16777619u;}
+    Serial.printf("job seed=%lu mode=%s elapsed_us=%lld verify_local_us=%lld match=%u grid=%08lx\n",
+        static_cast<unsigned long>(job.seed),c==Completion::remote?"remote":"local",
+        static_cast<long long>(elapsed),static_cast<long long>(verify_us),
+        unsigned(link.grid()==expected),static_cast<unsigned long>(digest));
+    if(link.grid()!=expected) {running=false;link.disconnect();remote_enabled=false;Serial.println("MISMATCH: stopped");}
+}
+#endif
+} // namespace
+
+void setup() {
+    Serial.begin(115200);
+    rx_queue=xQueueCreateStatic(rx_depth,sizeof(Frame),rx_storage,&rx_queue_storage);
+    if(esp_read_mac(own.data(),ESP_MAC_WIFI_STA)!=ESP_OK) {own={}; attempted=true;}
+    Serial.printf("cluster role=%s mac=%02x%02x%02x%02x%02x%02x channel=%u queue=%u; radio not started by application\n",
+        CLUSTER_COORDINATOR?"coordinator":"worker",unsigned(own[0]),unsigned(own[1]),unsigned(own[2]),
+        unsigned(own[3]),unsigned(own[4]),unsigned(own[5]),unsigned(channel),unsigned(rx_queue!=nullptr));
+    Serial.println("pair <peer-mac12> <epoch8> <pmk32> <lmk32> (hex; no echo); status; coordinator: run stop local remote xy X Y");
+}
+void loop() {
+    serial_poll();
+    for(unsigned i=0;i<4;++i) {
+        Frame f; if(!rx_queue||xQueueReceive(rx_queue,&f,0)!=pdTRUE) break;
+        if(!remote_enabled) continue;
+#if CLUSTER_COORDINATOR
+        completed(link.receive(f,millis()));
+#else
+        auto result=worker.receive(f);
+        if(result.size) send_frame(result); // Busy response can be retried by coordinator.
+#endif
+    }
+#if CLUSTER_COORDINATOR
+    completed(link.tick(millis(),send_frame));
+    if(running&&!link.pending()&&uint32_t(millis()-last_job)>=250) {
+        last_job=millis();job.seed=next_seed++;job.particles=512;job.steps=64;
+        started_us=esp_timer_get_time();
+        if(!link.start(job,last_job,60,send_frame)) {running=false;Serial.println("start failed");}
+    }
+#endif
+    delay(1);
+}
