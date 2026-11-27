@@ -3,6 +3,9 @@
 #define NOMINMAX
 #include "udp_transport.hpp"
 #include "field_av.hpp"
+#ifdef CLUSTER_MULTI_DESKTOP
+#include "multi_field.hpp"
+#endif
 #include <windows.h>
 #include <windowsx.h>
 #include <mmsystem.h>
@@ -12,9 +15,16 @@
 #include <thread>
 using namespace cluster;
 namespace {
-using cluster::av::Field;
-Field field;
+#ifdef CLUSTER_MULTI_DESKTOP
+av::MultiField field;
+std::array<std::unique_ptr<Udp>,2> udp;
+unsigned nodes=0;
+bool has_network(){return nodes!=0;}
+#else
+av::Field field;
 std::unique_ptr<Udp> udp;
+bool has_network(){return bool(udp);}
+#endif
 std::atomic<uint32_t> audio_word{0},audio_stamp{0};
 std::atomic<bool> audio_stop{false},audio_ok{false};
 std::array<uint32_t,av::width*av::height> pixels{};
@@ -65,14 +75,25 @@ void touch(HWND w,int x,int y) {
 }
 void update(HWND w) {
     const auto now=ms();
+#ifdef CLUSTER_MULTI_DESKTOP
+    if(field.remote_enabled())for(unsigned slot=0;slot<nodes;++slot)for(unsigned i=0;i<4;++i) {
+        Frame f; if(!udp[slot]->receive(f))break; field.receive(slot,f,now);
+    }
+    auto send=[](unsigned slot,const Frame& f){return slot<nodes&&udp[slot]->send(f);};
+#else
     if(udp&&field.remote_enabled())for(unsigned i=0;i<8;++i) {Frame f;if(!udp->receive(f))break;field.receive(f,now);}
     auto send=[](const Frame& f){return udp&&udp->send(f);};
+#endif
     field.tick(now,send);
     audio_word.store(field.sound(),std::memory_order_release);
     audio_stamp.store(now,std::memory_order_release);
     ++ticks;
     InvalidateRect(w,nullptr,FALSE);
+#ifdef CLUSTER_MULTI_DESKTOP
+    if(smoke&&ticks>=(remote_smoke?240u:60u))DestroyWindow(w);
+#else
     if(smoke&&ticks>=(remote_smoke?120u:30u))DestroyWindow(w);
+#endif
 }
 LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
     switch(msg) {
@@ -93,7 +114,7 @@ LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
     case WM_KEYDOWN:
         if(wp==VK_ESCAPE)DestroyWindow(w);
         else if(wp=='M')release();
-        else if(wp=='R'&&udp)field.remote(!field.remote_enabled());
+        else if(wp=='R'&&has_network())field.remote(!field.remote_enabled());
         return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps{};HDC dc=BeginPaint(w,&ps);RECT client{};GetClientRect(w,&client);
@@ -116,10 +137,16 @@ LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
         FillRect(dc,&bar,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,230,235));
         char status[220];
+#ifdef CLUSTER_MULTI_DESKTOP
+        std::snprintf(status,sizeof(status),"%s | %s | %s | Hold/drag: sound  M: mute  R: remote  Esc: quit",
+            field.remote_enabled()&&has_network()?"UDP enabled":"Local",
+            field.mode(),audio_ok.load()?"audio on":"audio unavailable/off");
+#else
         std::snprintf(status,sizeof(status),"%s | last %s | %s | Hold/drag: sound  M: mute  R: remote  Esc: quit",
             field.remote_enabled()?(field.ready()?"UDP ready":"UDP searching"):"Local",
             field.last_completion()==Completion::remote?"remote":"local",
             audio_ok.load()?"audio on":"audio unavailable/off");
+#endif
         DrawTextA(dc,status,-1,&bar,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         if(result!=GDI_ERROR&&result!=0)++paints;
         EndPaint(w,&ps);return 0;
@@ -130,20 +157,45 @@ LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
 }
 }
 int main(int argc,char** argv) {
+#ifdef CLUSTER_MULTI_DESKTOP
+    const bool endpoint_args=argc==4||argc==6;
+    remote_smoke=endpoint_args&&std::strcmp(argv[1],"--udp-smoke")==0;
+    smoke=remote_smoke||(argc==2&&std::strcmp(argv[1],"--smoke")==0);
+    const bool network=remote_smoke||(endpoint_args&&std::strcmp(argv[1],"--udp")==0);
+    if(argc!=1&&!smoke&&!network)fail("usage: cluster_multi_field [--smoke | --udp own0 peer0 [own1 peer1] | --udp-smoke own0 peer0 [own1 peer1]]");
+#else
     remote_smoke=argc==4&&std::strcmp(argv[1],"--udp-smoke")==0;
     smoke=remote_smoke||(argc==2&&std::strcmp(argv[1],"--smoke")==0);
     const bool network=remote_smoke||(argc==4&&std::strcmp(argv[1],"--udp")==0);
     if(argc!=1&&!smoke&&!network)fail("usage: cluster_field [--smoke | --udp own-port peer-port | --udp-smoke own-port peer-port]");
+#endif
     if(network) {
         WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup failed");
         auto port=[](const char* s){char* end=nullptr;const auto n=std::strtoul(s,&end,10);if(!*s||*end||n<1024||n>65535)fail("invalid port");return unsigned(n);};
+#ifdef CLUSTER_MULTI_DESKTOP
+        nodes=unsigned((argc-2)/2);
+        std::array<unsigned,4> ports{};
+        for(unsigned i=0;i<2*nodes;++i) {
+            ports[i]=port(argv[2+i]);
+            for(unsigned j=0;j<i;++j)if(ports[i]==ports[j])fail("endpoint ports must be distinct");
+        }
+        for(unsigned i=0;i<nodes;++i)udp[i]=std::make_unique<Udp>(ports[2*i],ports[2*i+1]);
+        // Development loopback endpoints are distinct; both existing workers use test epoch 91.
+        field.configure(nodes,91,91);
+#else
         udp=std::make_unique<Udp>(port(argv[2]),port(argv[3]));field.remote(true);
+#endif
     }
     const auto instance=GetModuleHandleA(nullptr);
     WNDCLASSA wc{};wc.lpfnWndProc=window_proc;wc.hInstance=instance;wc.lpszClassName="CYDClusterField";
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     if(!RegisterClassA(&wc))fail("RegisterClass failed");
-    HWND w=CreateWindowExA(0,wc.lpszClassName,"VIBEWARE / VECTORFIELD - native cluster experiment",
+#ifdef CLUSTER_MULTI_DESKTOP
+    const char* title="VIBEWARE / VECTORFIELD - two-cohort cluster";
+#else
+    const char* title="VIBEWARE / VECTORFIELD - native cluster experiment";
+#endif
+    HWND w=CreateWindowExA(0,wc.lpszClassName,title,
         WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,800,640,nullptr,nullptr,instance,nullptr);
     if(!w)fail("CreateWindow failed");
     std::thread audio;
@@ -151,10 +203,26 @@ int main(int argc,char** argv) {
     ShowWindow(w,SW_SHOW);UpdateWindow(w);
     MSG msg{};int rc=0;while((rc=GetMessageA(&msg,nullptr,0,0))>0) {TranslateMessage(&msg);DispatchMessageA(&msg);}
     audio_stop.store(true);if(audio.joinable())audio.join();
-    if(network){udp.reset();WSACleanup();}
+    if(network){
+#ifdef CLUSTER_MULTI_DESKTOP
+        for(auto& socket:udp)socket.reset();
+#else
+        udp.reset();
+#endif
+        WSACleanup();
+    }
     if(smoke) {
         std::cout<<"GDI paint count="<<paints<<" control ticks="<<ticks<<" local jobs="<<field.stats().local<<" remote jobs="<<field.stats().remote<<'\n';
+#ifdef CLUSTER_MULTI_DESKTOP
+        if(paints<2||field.stats().local<2||field.stats().batches<2)return 1;
+        for(unsigned slot=0;slot<nodes;++slot) {
+            const auto& st=field.link_stats(slot);
+            std::cout<<"slot="<<slot<<" remote="<<st.remote<<" local="<<st.local<<'\n';
+            if(remote_smoke&&st.remote<2)return 1;
+        }
+#else
         if(paints<2||field.stats().local<2||(remote_smoke&&field.stats().remote<2))return 1;
+#endif
     }
     return rc<0?1:0;
 }

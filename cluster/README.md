@@ -96,3 +96,18 @@ Each run performs 60 matched 1024-particle x 64-step batches (same two seeds/att
 New `cyd-multi-field` candidate combines the two-cohort scheduler with the existing actual-core touch, display and GPIO26 audio panel. Boot locally with 1024 particles and no application radio; `audio on` arms touch-gated sound; `mute`/BOOT disarms. Stage `pair0`/ `pair1` as in M4, then `enable 1` or `enable 2` once per boot to initialize peers. `local` forces same-cohort fallback and suppresses new sends, `remote` resumes the negotiated profile; reboot all nodes and rekey for a changed profile. Footer identifies completed snapshot LOCAL 0/2, MIXED 1/2 or REMOTE 2/2. Both cohorts share touch position and step count; display and audio publish only the complete 1024-particle aggregate. New jobs at 250 ms minimum interval; each cohort has a 60 ms timeout, so one peer can take two budgets plus local fallback compute. No real-time whole-batch guarantee. Audio still has independent task and stale-control mute, never calls the network; local compute is on control loop and must be timed physically. `status` reports cumulative per-peer jobs/retries, heap/min heap, maximum control-loop processing time (RX handling and simulation tick, not input/display), panel frame/slice/touch and audio write/compute counters. Existing worker firmware unchanged. No verification recompute in the interactive path; run the serial benchmark separately to validate physical workers. Physical installation remains unapproved.
 
 `cluster_multi_field_test` drives 0/1/2-node deterministic virtual-time gestures across timer wrap, drops all second-peer traffic, checks exact merged grids, RGB565 rows, controls and actual PCM against standalone, verifies local toggling emits no packets and gates release. Native in-process test only; separate process UDP and hardware build gates remain. New target build and extracted Windows replay are included in CI.
+
+### Windows interactive matched-cohort evaluator
+
+`cluster_multi_field.exe` runs the same MultiField aggregate core locally (mouse hold/drag, M mute, R toggle offload, Esc exit). Optional one or two actual IPv4 loopback worker processes (development epoch 91, no LAN/physical authentication claim):
+
+```powershell
+# terminal 1
+.\cluster_udp.exe serve 42001 42000 clean
+# terminal 2
+.\cluster_udp.exe serve 42003 42002 faults
+# terminal 3
+.\cluster_multi_field.exe --udp 42000 42001 42002 42003
+```
+
+Use only the first port pair for one worker; no arguments for zero. Terminate workers after play and restart for a fresh development session. All three modes execute the same 1024-particle batch; the footer displays per-batch remote contribution. Extracted package CI runs local GDI smoke and actual separate-process two-peer smoke with a fault-injected peer, checks both workers contributed and local completions occurred during toggling. No audio endpoint assertion in smoke; portable PCM equivalence tested separately. This is an engineering evaluator, not physical CYD performance evidence.
