@@ -114,7 +114,7 @@ public:
         field.gate(contact_&&armed_&&uint32_t(now-last_touch_)<=40);
     }
     void output(const av::Field& field,uint32_t now) {
-        word_.store(field.sound(),std::memory_order_release);
+        word_.store(armed_&&contact_&&uint32_t(now-last_touch_)<=40?field.sound():0,std::memory_order_release);
         lease_.store(now,std::memory_order_release);
         if(!display_)return;
         if(y_==av::height) {

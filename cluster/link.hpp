@@ -37,12 +37,12 @@ public:
         if(request_.size) transmit(request_,send);
         return true;
     }
-    template<class Send> Completion tick(uint32_t now,Send& send) {
+    template<class Send> Completion tick(uint32_t now,Send& send,bool allow_hello=true) {
         const auto done=finish(core_.poll(now));
         if(core_.pending() && request_.size && uint32_t(now-last_send_)>=10) {
             ++stats.retries; last_send_=now; transmit(request_,send);
         }
-        if(!core_.pending()&&!core_.ready()&&(!hello_sent_||uint32_t(now-last_hello_)>=100)) {
+        if(allow_hello&&!core_.pending()&&!core_.ready()&&(!hello_sent_||uint32_t(now-last_hello_)>=100)) {
             hello_sent_=true; last_hello_=now; ++stats.hello; transmit(core_.hello(),send);
         }
         return done;

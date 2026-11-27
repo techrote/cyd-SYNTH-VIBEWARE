@@ -72,6 +72,7 @@ int main(int argc,char** argv) {
     CHECK(remote.stats().remote>0&&remote.stats().local>0&&drops>0&&deliveries>0);
     CHECK(nonzero>5&&peak>100&&peak<=9000);
     CHECK(pcm.size()==72000);
+    CHECK(local.stats().hello==0&&local.stats().sent==0&&local.stats().busy==0);
     if(argc==2) {wav(std::string(argv[1])+".wav",pcm);ppm(std::string(argv[1])+".ppm",remote);}
     else CHECK(argc==1);
     std::cout<<"PASS field checks="<<checks<<" remote="<<remote.stats().remote<<" local="<<remote.stats().local

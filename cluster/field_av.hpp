@@ -93,13 +93,13 @@ public:
     void receive(const Frame& f,uint32_t now) {if(remote_)complete(link_.receive(f,now));}
     template<class Send> void tick(uint32_t now,Send& send) {
         auto route=[&](const Frame& f){return remote_&&send(f);};
-        complete(link_.tick(now,route));
+        complete(link_.tick(now,route,remote_));
         if(!link_.pending()&&(!started_||uint32_t(now-last_)>=100u)) {
             active_=next_;
             if(link_.start(active_,now,60,route)) {
                 started_=true;last_=now;++next_.seed;
                 // immediate local completion if no negotiated peer.
-                complete(link_.tick(now,route));
+                complete(link_.tick(now,route,remote_));
             }
         }
     }

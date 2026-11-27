@@ -30,6 +30,7 @@ jobs:
           Copy-Item build/cluster/Release/cluster_field.exe $pkg
           Copy-Item build/cluster/Release/cluster_field_replay.exe $pkg
           Copy-Item cluster/udp_test.py $pkg
+          Copy-Item cluster/field_udp_smoke.py $pkg
           & "$pkg/cluster_field_replay.exe" "$pkg/field-demo"
           if ($LASTEXITCODE -ne 0) { throw 'Field replay/media failed' }
           Copy-Item cluster/README.md $pkg
@@ -44,6 +45,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted field replay failed' }
           & './extracted cluster/cluster_field.exe' --smoke
           if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI smoke failed' }
+          python './extracted cluster/field_udp_smoke.py' './extracted cluster/cluster_udp.exe' './extracted cluster/cluster_field.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI UDP smoke failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

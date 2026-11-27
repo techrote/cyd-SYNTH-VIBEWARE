@@ -15,10 +15,10 @@ namespace {
 using cluster::av::Field;
 Field field;
 std::unique_ptr<Udp> udp;
-std::atomic<uint32_t> audio_word{0};
+std::atomic<uint32_t> audio_word{0},audio_stamp{0};
 std::atomic<bool> audio_stop{false},audio_ok{false};
 std::array<uint32_t,av::width*av::height> pixels{};
-bool held=false,smoke=false;
+bool held=false,smoke=false,remote_smoke=false;
 unsigned paints=0,ticks=0;
 void audio_loop() {
     WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannels=1;fmt.nSamplesPerSec=av::rate;
@@ -42,7 +42,9 @@ void audio_loop() {
             for(unsigned i=0;i<count;++i) {
                 auto& h=headers[i];
                 if(!(h.dwFlags&WHDR_INQUEUE)) {
-                    voice.render(audio_word.load(),pcm[i].data(),samples);
+                    const auto stamp=audio_stamp.load(std::memory_order_acquire);
+                    const auto word=uint32_t(ms()-stamp)>120?0:audio_word.load(std::memory_order_acquire);
+                    voice.render(word,pcm[i].data(),samples);
                     if(waveOutWrite(device,&h,sizeof(h))!=MMSYSERR_NOERROR) {healthy=false;break;}
                 }
             }
@@ -66,17 +68,23 @@ void update(HWND w) {
     if(udp&&field.remote_enabled())for(unsigned i=0;i<8;++i) {Frame f;if(!udp->receive(f))break;field.receive(f,now);}
     auto send=[](const Frame& f){return udp&&udp->send(f);};
     field.tick(now,send);
-    audio_word.store(field.sound());
+    audio_word.store(field.sound(),std::memory_order_release);
+    audio_stamp.store(now,std::memory_order_release);
     ++ticks;
     InvalidateRect(w,nullptr,FALSE);
-    if(smoke&&ticks>=30)DestroyWindow(w);
+    if(smoke&&ticks>=(remote_smoke?120u:30u))DestroyWindow(w);
 }
 LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
     switch(msg) {
     case WM_CREATE: if(!SetTimer(w,1,16,nullptr))return -1;return 0;
     case WM_TIMER:
-        if(smoke&&ticks==2){touch(w,100,100);field.gate(true);}
-        if(smoke&&ticks==15){touch(w,400,260);release();}
+        if(smoke&&ticks==2)SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(100,100));
+        if(smoke&&ticks==15) {
+            SendMessageA(w,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(400,260));
+            SendMessageA(w,WM_LBUTTONUP,0,MAKELPARAM(400,260));
+        }
+        if(remote_smoke&&ticks==30)SendMessageA(w,WM_KEYDOWN,'R',0);
+        if(remote_smoke&&ticks==50)SendMessageA(w,WM_KEYDOWN,'R',0);
         update(w);return 0;
     case WM_LBUTTONDOWN:held=true;SetCapture(w);touch(w,GET_X_LPARAM(lp),GET_Y_LPARAM(lp));field.gate(true);return 0;
     case WM_MOUSEMOVE:if(held)touch(w,GET_X_LPARAM(lp),GET_Y_LPARAM(lp));return 0;
@@ -122,9 +130,10 @@ LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp) {
 }
 }
 int main(int argc,char** argv) {
-    smoke=argc==2&&std::strcmp(argv[1],"--smoke")==0;
-    const bool network=argc==4&&std::strcmp(argv[1],"--udp")==0;
-    if(argc!=1&&!smoke&&!network)fail("usage: cluster_field [--smoke | --udp own-port peer-port]");
+    remote_smoke=argc==4&&std::strcmp(argv[1],"--udp-smoke")==0;
+    smoke=remote_smoke||(argc==2&&std::strcmp(argv[1],"--smoke")==0);
+    const bool network=remote_smoke||(argc==4&&std::strcmp(argv[1],"--udp")==0);
+    if(argc!=1&&!smoke&&!network)fail("usage: cluster_field [--smoke | --udp own-port peer-port | --udp-smoke own-port peer-port]");
     if(network) {
         WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup failed");
         auto port=[](const char* s){char* end=nullptr;const auto n=std::strtoul(s,&end,10);if(!*s||*end||n<1024||n>65535)fail("invalid port");return unsigned(n);};
@@ -143,6 +152,9 @@ int main(int argc,char** argv) {
     MSG msg{};int rc=0;while((rc=GetMessageA(&msg,nullptr,0,0))>0) {TranslateMessage(&msg);DispatchMessageA(&msg);}
     audio_stop.store(true);if(audio.joinable())audio.join();
     if(network){udp.reset();WSACleanup();}
-    if(smoke) {std::cout<<"GDI paint count="<<paints<<" control ticks="<<ticks<<" local jobs="<<field.stats().local<<'\n';if(paints<2||field.stats().local<2)return 1;}
+    if(smoke) {
+        std::cout<<"GDI paint count="<<paints<<" control ticks="<<ticks<<" local jobs="<<field.stats().local<<" remote jobs="<<field.stats().remote<<'\n';
+        if(paints<2||field.stats().local<2||(remote_smoke&&field.stats().remote<2))return 1;
+    }
     return rc<0?1:0;
 }
