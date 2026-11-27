@@ -7,6 +7,7 @@ from pathlib import Path
 
 BATCHES = 64
 BINS = 24
+HISTOGRAMS = {"control","loop","slice","touch","frame_period","audio_compute","audio_write","audio_period"}
 
 def fields(line):
     out = {}
@@ -58,7 +59,7 @@ def parse(text):
             if run is not None:
                 raise ValueError("truncated run before next begin")
             header = {k: number(d,k) for k in ("schema","nodes","remote","audio","count","steps","particles")}
-            if (header["schema"]!=1 or header["nodes"]>2 or header["remote"]>1 or
+            if (header["schema"]!=2 or header["nodes"]>2 or header["remote"]>1 or
                 header["audio"]>1 or header["count"]!=BATCHES or header["steps"]!=64 or
                 header["particles"]!=1024 or (header["remote"] and not header["nodes"])):
                 raise ValueError("unsupported or inconsistent benchmark header")
@@ -76,7 +77,7 @@ def parse(text):
         elif kind == "hist":
             name=d["name"]
             counts=[int(v) for v in d["counts"].split(",")]
-            if name not in ("control","loop") or name in run["histograms"] or len(counts)!=BINS or min(counts)<0:
+            if name not in HISTOGRAMS or name in run["histograms"] or len(counts)!=BINS or min(counts)<0:
                 raise ValueError("invalid histogram")
             run["histograms"][name]={"counts":counts,**hist_summary(counts)}
         elif kind == "peer":
@@ -88,7 +89,7 @@ def parse(text):
             end={k:number(d,k) for k in ("count","elapsed_us","frames","audio_blocks","audio_errors",
                 "heap_min_sample","tx_fail","rx_drop","rx_reject")}
             end["reason"]=d["reason"]
-            if end["count"]!=len(run["samples"]) or end["elapsed_us"]==0 or set(run["histograms"])!={"control","loop"}:
+            if end["count"]!=len(run["samples"]) or end["elapsed_us"]==0 or set(run["histograms"])!=HISTOGRAMS or len(run["peers"])!=run["header"]["nodes"]:
                 raise ValueError("incomplete or inconsistent benchmark")
             run["end"]=end
             run["complete"]=end["reason"]=="complete" and end["count"]==BATCHES
@@ -137,7 +138,7 @@ def main():
             run["source_log"]=str(path)
             runs.append(run)
     comparisons=compare(runs)
-    args.output.write_text(json.dumps({"schema":1,"firmware_sha256":digest,"board":args.board,
+    args.output.write_text(json.dumps({"schema":2,"firmware_sha256":digest,"board":args.board,
         "evidence":"operator-supplied serial log; physical provenance not independently verified",
         "runs":runs,"comparison":comparisons},indent=2)+"\n",encoding="utf-8")
     with args.output.with_suffix(".csv").open("w",newline="",encoding="utf-8") as fp:

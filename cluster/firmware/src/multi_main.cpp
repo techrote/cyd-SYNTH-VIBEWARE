@@ -47,9 +47,9 @@ int64_t bench_begin=0,batch_begin=0;
 uint32_t seen_batches=0,heap_min=0;
 uint32_t tx_before=0,drop_before=0,reject_before=0;
 std::array<LinkStats,2> link_before{};
-void print_hist(const char* name,const bench::Histogram& hist) {
+void print_hist(const char* name,const bench::Counts& counts) {
     Serial.printf("bench hist name=%s counts=",name);
-    for(unsigned i=0;i<bench::bins;++i)Serial.printf("%s%lu",i?",":"",static_cast<unsigned long>(hist.counts[i]));
+    for(unsigned i=0;i<bench::bins;++i)Serial.printf("%s%lu",i?",":"",static_cast<unsigned long>(counts[i]));
     Serial.println();
 }
 void finish_bench(const char* reason) {
@@ -60,7 +60,9 @@ void finish_bench(const char* reason) {
         const auto& s=capture.rows[i];
         Serial.printf("bench sample seed=%lu us=%lu grid=%08lx remote=%u\n",static_cast<unsigned long>(s.seed),static_cast<unsigned long>(s.us),static_cast<unsigned long>(s.hash),s.remote);
     }
-    print_hist("control",control_hist);print_hist("loop",loop_hist);
+    print_hist("control",control_hist.counts);print_hist("loop",loop_hist.counts);
+    constexpr const char* names[]={"slice","touch","frame_period","audio_compute","audio_write","audio_period"};
+    for(unsigned i=0;i<6;++i)print_hist(names[i],bench::delta(baseline.hist[i],end.hist[i]));
     for(unsigned i=0;i<configured_nodes;++i) {
         const auto& s=field.link_stats(i);const auto& b=link_before[i];
         Serial.printf("bench peer slot=%u sent=%lu retry=%lu remote=%lu local=%lu busy=%lu\n",i,static_cast<unsigned long>(s.sent-b.sent),static_cast<unsigned long>(s.retries-b.retries),static_cast<unsigned long>(s.remote-b.remote),static_cast<unsigned long>(s.local-b.local),static_cast<unsigned long>(s.busy-b.busy));
@@ -71,7 +73,7 @@ void finish_bench(const char* reason) {
 void start_bench() {
     if(!field.replay_reset())return;
     capture={};loop_hist={};control_hist={};seen_batches=field.stats().batches;
-    Serial.printf("bench begin schema=1 nodes=%u remote=%u audio=%u count=%u steps=64 particles=1024\n",configured_nodes,unsigned(configured_nodes&&field.remote_enabled()),unsigned(bench_audio),bench::batches);
+    Serial.printf("bench begin schema=2 nodes=%u remote=%u audio=%u count=%u steps=64 particles=1024\n",configured_nodes,unsigned(configured_nodes&&field.remote_enabled()),unsigned(bench_audio),bench::batches);
     Serial.flush();
     baseline=panel.evidence();heap_min=ESP.getFreeHeap();tx_before=tx_fail.load();drop_before=dropped.load();reject_before=rejected.load();
     for(unsigned i=0;i<configured_nodes;++i)link_before[i]=field.link_stats(i);
@@ -320,7 +322,9 @@ void loop() {
     if(bench_run&&!field.pending())panel.scripted(field,bench::gesture(field.next_seed()),bench_audio);
     const auto previous_seed=field.next_seed();
     const auto tick_start=esp_timer_get_time();
-    field.tick(millis(),enqueue,!bench_wait);
+    // If a prior batch completes in tick(), defer a new start until the
+    // next iteration so its timestamp cannot overwrite the prior sample.
+    field.tick(millis(),enqueue,!bench_wait&&(!bench_run||!field.pending()));
     if(bench_run&&field.next_seed()!=previous_seed)batch_begin=tick_start;
     if(bench_run&&!collect_batch())finish_bench("sequence_error");
 #else

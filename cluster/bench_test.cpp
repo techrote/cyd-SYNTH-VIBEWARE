@@ -10,6 +10,11 @@ int main(){
     Histogram h;
     for(uint32_t i=0;i<100000;++i)h.add(i);
     uint32_t sum=0;for(auto n:h.counts)sum+=n;check(sum==100000);
+    AtomicHistogram ah;
+    for(uint32_t i=0;i<100000;++i)ah.add(i);
+    check(ah.snapshot()==h.counts);
+    Counts a{},b{};a[0]=UINT32_MAX;b[0]=2;
+    check(delta(a,b)[0]==3);
     Capture c;check(!c.record({2,1,0,0}));check(!c.record({1,1,0,3}));
     av::MultiField field;auto no_send=[](unsigned,const Frame&){return false;};
     for(unsigned run=0;run<2;++run){

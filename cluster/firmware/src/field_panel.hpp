@@ -45,16 +45,28 @@ class Panel {
     const char* snapshot_mode_=nullptr;
     std::array<uint16_t,av::width> rgb_{};
     std::array<lgfx::rgb565_t,av::width> line_{};
+#ifdef CLUSTER_FIELD_BENCH
+    bench::Histogram slice_hist_,touch_hist_,frame_hist_;
+    bench::AtomicHistogram audio_hist_,write_hist_,period_hist_;
+    int64_t last_frame_done_=0;
+#endif
     static void audio_task(void* arg) {
         auto& self=*static_cast<Panel*>(arg);
         av::Voice voice;
         std::array<int16_t,block> mono{};
         std::array<uint16_t,block*2> stereo{};
+#ifdef CLUSTER_FIELD_BENCH
+        int64_t last_audio_start=0;
+#endif
         for(;;) {
             const auto stamp=self.lease_.load(std::memory_order_acquire);
             const uint32_t age=uint32_t(millis()-stamp);
             const uint32_t word=age>120||self.audio_fault_.load()?0:self.word_.load(std::memory_order_acquire);
             const int64_t before=esp_timer_get_time();
+#ifdef CLUSTER_FIELD_BENCH
+            if(last_audio_start)self.period_hist_.add(uint32_t(before-last_audio_start));
+            last_audio_start=before;
+#endif
             voice.render(word,mono.data(),mono.size());
             for(unsigned i=0;i<block;++i) {
                 const uint16_t v=uint16_t(32768+int32_t(mono[i])/2);
@@ -62,8 +74,15 @@ class Panel {
             }
             const uint32_t compute_us=uint32_t(esp_timer_get_time()-before);
             if(compute_us>self.audio_max_us_.load())self.audio_max_us_.store(compute_us);
+#ifdef CLUSTER_FIELD_BENCH
+            self.audio_hist_.add(compute_us);
+            const auto write_start=esp_timer_get_time();
+#endif
             size_t written=0;
             const auto rc=i2s_write(I2S_NUM_0,stereo.data(),sizeof(stereo),&written,pdMS_TO_TICKS(20));
+#ifdef CLUSTER_FIELD_BENCH
+            self.write_hist_.add(uint32_t(esp_timer_get_time()-write_start));
+#endif
             if(rc!=ESP_OK||written!=sizeof(stereo)) {
                 self.audio_errors_.fetch_add(1);
                 self.audio_fault_.store(true);
@@ -112,7 +131,11 @@ public:
         if(display_&&uint32_t(now-last_touch_)>=12) {
             last_touch_=now;const auto before=esp_timer_get_time();
             const auto p=touch_.getPoint();
-            touch_max_us_=std::max(touch_max_us_,uint32_t(esp_timer_get_time()-before));
+            const auto elapsed=uint32_t(esp_timer_get_time()-before);
+            touch_max_us_=std::max(touch_max_us_,elapsed);
+#ifdef CLUSTER_FIELD_BENCH
+            touch_hist_.add(elapsed);
+#endif
             contact_=p.z>=400;
             if(contact_){touch_x_=axis(p.y);touch_y_=axis(4100-int(p.x));field.xy(touch_x_,touch_y_);}
         }
@@ -126,8 +149,17 @@ public:
         contact_=audio&&g.gate;touch_x_=g.x;touch_y_=g.y;
         field.xy(g.x,g.y);field.gate(contact_&&armed());
     }
-    struct Evidence {uint32_t frames,blocks,errors;};
-    Evidence evidence()const {return {frames_,audio_blocks_.load(),audio_errors_.load()};}
+    struct Evidence {
+        uint32_t frames,blocks,errors;
+        std::array<bench::Counts,6> hist;
+    };
+    Evidence evidence()const {
+        Evidence e{};
+        e.frames=frames_;e.blocks=audio_blocks_.load();e.errors=audio_errors_.load();
+        e.hist={{slice_hist_.counts,touch_hist_.counts,frame_hist_.counts,
+            audio_hist_.snapshot(),write_hist_.snapshot(),period_hist_.snapshot()}};
+        return e;
+    }
     #endif
     uint16_t x()const{return touch_x_;}
     uint16_t y()const{return touch_y_;}
@@ -154,9 +186,18 @@ public:
             screen_.drawString(audio_fault_.load()?"AUDIO FAULT":(armed_?"AUDIO ARMED":"MUTED"),90,227);
             if(timed)screen_.fillRect(305,227,10,10,timed_word?uint16_t(0xffe0):uint16_t(0x4208));
             ++frames_;
+#ifdef CLUSTER_FIELD_BENCH
+            const auto done=esp_timer_get_time();
+            if(last_frame_done_)frame_hist_.add(uint32_t(done-last_frame_done_));
+            last_frame_done_=done;
+#endif
         }
         screen_.endWrite();
-        slice_max_us_=std::max(slice_max_us_,uint32_t(esp_timer_get_time()-before));
+        const auto elapsed=uint32_t(esp_timer_get_time()-before);
+        slice_max_us_=std::max(slice_max_us_,elapsed);
+#ifdef CLUSTER_FIELD_BENCH
+        slice_hist_.add(elapsed);
+#endif
     }
     void status() const {
         Serial.printf("panel=%u frames=%lu slice_max_us=%lu touch_max_us=%lu audio_started=%u armed=%u audio_blocks=%lu audio_write_errors=%lu audio_compute_max_us=%lu audio_fault=%u\n",

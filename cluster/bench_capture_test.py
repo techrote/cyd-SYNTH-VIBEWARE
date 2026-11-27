@@ -1,10 +1,10 @@
 import unittest
-from bench_capture import parse,compare,hist_summary
+from bench_capture import parse,compare,hist_summary,HISTOGRAMS
 
 def fixture(nodes=0, bad=False, audio=0):
-    rows=[f"bench begin schema=1 nodes={nodes} remote={int(nodes>0)} audio={audio} count=64 steps=64 particles=1024"]
+    rows=[f"bench begin schema=2 nodes={nodes} remote={int(nodes>0)} audio={audio} count=64 steps=64 particles=1024"]
     rows += [f"bench sample seed={i} us={i*2} grid={i+int(bad):08x} remote={nodes}" for i in range(1,65)]
-    for n in ("control","loop"):
+    for n in sorted(HISTOGRAMS):
         rows.append(f"bench hist name={n} counts="+",".join(["64"]+["0"]*23))
     for slot in range(nodes):
         rows.append(f"bench peer slot={slot} sent=64 retry=0 remote=64 local=0 busy=0")
