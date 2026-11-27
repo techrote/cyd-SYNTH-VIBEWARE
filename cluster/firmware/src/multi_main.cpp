@@ -38,6 +38,51 @@ bool attempted=false, configured=false;
 av::MultiField field;
 field_panel::Panel panel;
 uint32_t control_max_us=0;
+#ifdef CLUSTER_FIELD_BENCH
+bench::Capture capture;
+bench::Histogram loop_hist,control_hist;
+field_panel::Panel::Evidence baseline{};
+bool bench_wait=false,bench_run=false,bench_audio=false;
+int64_t bench_begin=0,batch_begin=0;
+uint32_t seen_batches=0,heap_min=0;
+uint32_t tx_before=0,drop_before=0,reject_before=0;
+std::array<LinkStats,2> link_before{};
+void print_hist(const char* name,const bench::Histogram& hist) {
+    Serial.printf("bench hist name=%s counts=",name);
+    for(unsigned i=0;i<bench::bins;++i)Serial.printf("%s%lu",i?",":"",static_cast<unsigned long>(hist.counts[i]));
+    Serial.println();
+}
+void finish_bench(const char* reason) {
+    const auto elapsed=esp_timer_get_time()-bench_begin;
+    const auto end=panel.evidence();
+    bench_wait=false;bench_run=false;panel.mute();field.gate(false);
+    for(unsigned i=0;i<capture.count;++i) {
+        const auto& s=capture.rows[i];
+        Serial.printf("bench sample seed=%lu us=%lu grid=%08lx remote=%u\n",static_cast<unsigned long>(s.seed),static_cast<unsigned long>(s.us),static_cast<unsigned long>(s.hash),s.remote);
+    }
+    print_hist("control",control_hist);print_hist("loop",loop_hist);
+    for(unsigned i=0;i<configured_nodes;++i) {
+        const auto& s=field.link_stats(i);const auto& b=link_before[i];
+        Serial.printf("bench peer slot=%u sent=%lu retry=%lu remote=%lu local=%lu busy=%lu\n",i,static_cast<unsigned long>(s.sent-b.sent),static_cast<unsigned long>(s.retries-b.retries),static_cast<unsigned long>(s.remote-b.remote),static_cast<unsigned long>(s.local-b.local),static_cast<unsigned long>(s.busy-b.busy));
+    }
+    Serial.printf("bench end reason=%s count=%u elapsed_us=%lld frames=%lu audio_blocks=%lu audio_errors=%lu heap_min_sample=%lu tx_fail=%lu rx_drop=%lu rx_reject=%lu\n",reason,capture.count,static_cast<long long>(elapsed),static_cast<unsigned long>(end.frames-baseline.frames),static_cast<unsigned long>(end.blocks-baseline.blocks),static_cast<unsigned long>(end.errors-baseline.errors),static_cast<unsigned long>(heap_min),static_cast<unsigned long>(tx_fail.load()-tx_before),static_cast<unsigned long>(dropped.load()-drop_before),static_cast<unsigned long>(rejected.load()-reject_before));
+    panel.status(); // lifetime maxima, explicitly separate from window counts
+}
+void start_bench() {
+    if(!field.replay_reset())return;
+    capture={};loop_hist={};control_hist={};baseline=panel.evidence();seen_batches=field.stats().batches;
+    heap_min=ESP.getFreeHeap();tx_before=tx_fail.load();drop_before=dropped.load();reject_before=rejected.load();
+    for(unsigned i=0;i<configured_nodes;++i)link_before[i]=field.link_stats(i);
+    Serial.printf("bench begin schema=1 nodes=%u remote=%u audio=%u count=%u steps=64 particles=1024\n",configured_nodes,unsigned(configured_nodes&&field.remote_enabled()),unsigned(bench_audio),bench::batches);
+    Serial.flush();bench_begin=esp_timer_get_time();bench_run=true;bench_wait=false;
+}
+bool collect_batch() {
+    if(field.stats().batches==seen_batches)return true;
+    seen_batches=field.stats().batches;
+    const auto& j=field.shown();
+    return capture.record({j.seed,uint32_t(esp_timer_get_time()-batch_begin),bench::digest(field.grid()),field.remote_cohorts()});
+}
+#endif
 #else
 bool running=false;
 Multi multi(0,1,2);
@@ -150,6 +195,22 @@ void status() {
     }
 }
 void command(const char* text,std::size_t n) {
+#ifdef CLUSTER_FIELD_BENCH
+    if(bench_run||bench_wait) {
+        if(!std::strcmp(text,"bench stop")||!std::strcmp(text,"mute")) {
+            if(bench_run)finish_bench("stopped");else {bench_wait=false;panel.mute();}
+        }
+        return;
+    }
+    if(!std::strcmp(text,"bench visual")||!std::strcmp(text,"bench audio")) {
+        bench_audio=!std::strcmp(text,"bench audio");
+        if(!panel.display_ready()||(bench_audio&&!panel.armed())||(!bench_audio&&panel.audio_started())) {
+            Serial.println("bench rejected: panel/audio not ready (visual requires no prior audio arm)");return;
+        }
+        if(!bench_audio)panel.mute();
+        bench_wait=true;return;
+    }
+#endif
     if(n==93&&!std::memcmp(text,"pair",4)&&(text[4]=='0'||text[4]=='1')&&text[5]==' ') {
         const unsigned slot=unsigned(text[4]-'0');
         char normalized[93]{};
@@ -189,7 +250,12 @@ void serial_poll() {
         const int c=Serial.read();
         if(c=='\n') {
             if(!overflow) { line[used]=0; command(line,used); }
-            else Serial.println("line too long");
+            else {
+#ifdef CLUSTER_FIELD_BENCH
+                if(!bench_run&&!bench_wait)
+#endif
+                Serial.println("line too long");
+            }
             wipe(line,sizeof(line)); used=0; overflow=false;
         } else if(c!='\r') {
             if(c<32||c>126||used>=sizeof(line)-1) overflow=true;
@@ -233,16 +299,46 @@ void loop() {
     serial_poll();
 #if CLUSTER_MULTI_FIELD
     const uint32_t now=millis();
+#ifdef CLUSTER_FIELD_BENCH
+    const auto loop_start=esp_timer_get_time();
+#endif
     panel.input(field,now);
+#ifdef CLUSTER_FIELD_BENCH
+    if(bench_wait&&!field.pending())start_bench();
+    if(bench_run&&(digitalRead(0)==LOW||(bench_audio&&!panel.armed())))finish_bench("panic");
+    if(bench_run)panel.scripted(field,bench::gesture(field.pending()?field.next_seed()-1u:field.next_seed()),bench_audio);
+#endif
     const int64_t before=esp_timer_get_time();
     for(unsigned i=0;i<4;++i) {
         Packet p{}; if(!rx||xQueueReceive(rx,&p,0)!=pdTRUE) break;
         field.receive(p.slot,p.frame,millis());
     }
+#ifdef CLUSTER_FIELD_BENCH
+    if(bench_run&&!collect_batch())finish_bench("sequence_error");
+    if(bench_run&&capture.count==bench::batches)finish_bench("complete");
+    if(bench_run&&!field.pending())panel.scripted(field,bench::gesture(field.next_seed()),bench_audio);
+    const auto previous_seed=field.next_seed();
+    const auto tick_start=esp_timer_get_time();
+    field.tick(millis(),enqueue,!bench_wait);
+    if(bench_run&&field.next_seed()!=previous_seed)batch_begin=tick_start;
+    if(bench_run&&!collect_batch())finish_bench("sequence_error");
+#else
     field.tick(millis(),enqueue);
+#endif
     if(configured&&field.remote_enabled()) service_tx();
     control_max_us=std::max(control_max_us,uint32_t(esp_timer_get_time()-before));
+#ifdef CLUSTER_FIELD_BENCH
+    if(bench_run)control_hist.add(uint32_t(esp_timer_get_time()-before));
+#endif
     panel.output(field,millis(),false,0,false,false,field.mode());
+#ifdef CLUSTER_FIELD_BENCH
+    if(bench_run) {
+        loop_hist.add(uint32_t(esp_timer_get_time()-loop_start));
+        heap_min=std::min(heap_min,uint32_t(ESP.getFreeHeap()));
+        if(capture.count==bench::batches)finish_bench("complete");
+        else if(esp_timer_get_time()-bench_begin>45000000)finish_bench("timeout");
+    }
+#endif
 #else
     if(!configured) { delay(1); return; }
     const bool was_active=multi.active();

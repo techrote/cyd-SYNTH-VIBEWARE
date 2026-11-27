@@ -23,6 +23,13 @@ public:
     void configure(unsigned nodes,uint32_t epoch0,uint32_t epoch1) {
         multi_=Multi(nodes,epoch0,epoch1); started_=false;
     }
+    // Reset scene only after draining pending work; preserve link sequences.
+    bool replay_reset() {
+        if(pending()) return false;
+        next_=Job{1,1024,64,32768,32768}; started_=false; gate_=false;
+        return true;
+    }
+    uint32_t next_seed() const { return next_.seed; }
     void xy(uint16_t x,uint16_t y) { next_.x=x; next_.y=y; }
     void gate(bool on) { gate_=on; }
     void remote(bool on) { multi_.remote(on); }
@@ -43,13 +50,13 @@ public:
         multi_.receive(slot,f,now);
         if(was&&!multi_.active()) completed();
     }
-    template<class Send> void tick(uint32_t now,Send& send) {
+    template<class Send> void tick(uint32_t now,Send& send,bool allow_start=true) {
         auto route=[&](unsigned slot,const Frame& f){ return multi_.remote_enabled()&&send(slot,f); };
         const bool was=multi_.active();
         multi_.tick(now,route);
         if(was&&!multi_.active()) completed();
         // Two 60-ms per-cohort budgets; no catch-up bursts or overlapping batches.
-        if(!multi_.active()&&(!started_||uint32_t(now-last_)>=250)) {
+        if(allow_start&&!multi_.active()&&(!started_||uint32_t(now-last_)>=250)) {
             active_=next_;
             remote_before_=multi_.stats.remote;
             if(multi_.begin(cohorts(active_.seed,active_.x,active_.y,active_.steps),60)) {

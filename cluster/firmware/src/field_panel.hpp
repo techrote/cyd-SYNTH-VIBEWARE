@@ -9,6 +9,9 @@
 #include <driver/i2s.h>
 #include <esp_timer.h>
 #include <atomic>
+#ifdef CLUSTER_FIELD_BENCH
+#include "../../bench.hpp"
+#endif
 namespace field_panel {
 using namespace cluster;
 class Screen : public lgfx::LGFX_Device {
@@ -115,6 +118,17 @@ public:
         }
         field.gate(contact_&&armed_&&uint32_t(now-last_touch_)<=40);
     }
+    #ifdef CLUSTER_FIELD_BENCH
+    bool armed()const{return armed_&&!audio_fault_.load();}
+    bool display_ready()const{return display_;}
+    bool audio_started()const{return audio_started_;}
+    template<class Field> void scripted(Field& field,bench::Gesture g,bool audio) {
+        contact_=audio&&g.gate;touch_x_=g.x;touch_y_=g.y;
+        field.xy(g.x,g.y);field.gate(contact_&&armed());
+    }
+    struct Evidence {uint32_t frames,blocks,errors;};
+    Evidence evidence()const {return {frames_,audio_blocks_.load(),audio_errors_.load()};}
+    #endif
     uint16_t x()const{return touch_x_;}
     uint16_t y()const{return touch_y_;}
     template<class Field> void output(const Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0,bool follower=false,bool synced=false,const char* mode=nullptr) {
