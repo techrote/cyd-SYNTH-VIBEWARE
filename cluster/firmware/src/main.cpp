@@ -1,5 +1,7 @@
 // Experimental serial-controlled compute diagnostic, not a display/audio firmware.
 // Arduino ESP32 2.0.17 / IDF 4.4.7 ESP-NOW API, fixed unicast peer, radio opt-in.
+#include "../../link.hpp"
+#include "../../pairing.hpp"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -11,8 +13,6 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
-#include "../../link.hpp"
-#include "../../pairing.hpp"
 
 using namespace cluster;
 namespace {
@@ -24,7 +24,7 @@ QueueHandle_t rx_queue=nullptr;
 std::array<uint8_t,6> peer{}, own{};
 std::atomic<uint32_t> tx_busy{0}, tx_fail{0}, rx_drop{0}, rx_reject{0};
 bool paired=false, attempted=false, remote_enabled=false;
-Link link(1);
+Link controller_link(1);
 Worker worker(1);
 bool running=false;
 uint32_t last_job=0, next_seed=1;
@@ -57,7 +57,7 @@ bool send_frame(const Frame& f) {
     return true;
 }
 bool provision(const Pairing& p) {
-    if(attempted||p.peer==own||link.pending()||!rx_queue) return false;
+    if(attempted||p.peer==own||controller_link.pending()||!rx_queue) return false;
     attempted=true; peer=p.peer;
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
@@ -81,7 +81,7 @@ bool provision(const Pairing& p) {
         if(initialized) esp_now_deinit();
         WiFi.mode(WIFI_OFF); return false;
     }
-    link=Link(p.epoch); worker=Worker(p.epoch);
+    controller_link=Link(p.epoch); worker=Worker(p.epoch);
     paired=true; remote_enabled=true; return true;
 }
 void status() {
@@ -91,10 +91,10 @@ void status() {
         static_cast<unsigned long>(rx_reject.load()),unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()));
 #if CLUSTER_COORDINATOR
     Serial.printf("ready=%u pending=%u remote=%lu local=%lu retry=%lu hello=%lu accepted=%lu busy=%lu\n",
-        unsigned(link.ready()),unsigned(link.pending()),static_cast<unsigned long>(link.stats.remote),
-        static_cast<unsigned long>(link.stats.local),static_cast<unsigned long>(link.stats.retries),
-        static_cast<unsigned long>(link.stats.hello),static_cast<unsigned long>(link.stats.sent),
-        static_cast<unsigned long>(link.stats.busy));
+        unsigned(controller_link.ready()),unsigned(controller_link.pending()),static_cast<unsigned long>(controller_link.stats.remote),
+        static_cast<unsigned long>(controller_link.stats.local),static_cast<unsigned long>(controller_link.stats.retries),
+        static_cast<unsigned long>(controller_link.stats.hello),static_cast<unsigned long>(controller_link.stats.sent),
+        static_cast<unsigned long>(controller_link.stats.busy));
 #endif
 }
 void command(const char* text,std::size_t length) {
@@ -107,9 +107,9 @@ void command(const char* text,std::size_t length) {
     }
     if(std::strcmp(text,"status")==0) {status();return;}
 #if CLUSTER_COORDINATOR
-    if(std::strcmp(text,"local")==0) {remote_enabled=false;link.disconnect();Serial.println("local jobs; radio remains initialized if paired");return;}
+    if(std::strcmp(text,"local")==0) {remote_enabled=false;controller_link.disconnect();Serial.println("local jobs; radio remains initialized if paired");return;}
     if(std::strcmp(text,"remote")==0) {remote_enabled=paired;Serial.println(remote_enabled?"remote enabled":"pair first");return;}
-    if(std::strcmp(text,"run")==0&&!link.pending()) {next_seed=1;running=true;last_job=millis()-250u;return;}
+    if(std::strcmp(text,"run")==0&&!controller_link.pending()) {next_seed=1;running=true;last_job=millis()-250u;return;}
     if(std::strcmp(text,"stop")==0) {running=false;return;}
     unsigned x=0,y=0; char extra=0;
     if(std::sscanf(text,"xy %u %u %c",&x,&y,&extra)==2&&x<=65535&&y<=65535) {
@@ -139,12 +139,12 @@ void completed(Completion c) {
     const auto expected=compute(active_job);
     const auto verify_us=esp_timer_get_time()-before;
     uint32_t digest=2166136261u;
-    for(auto x:link.grid()) {digest^=x;digest*=16777619u;}
+    for(auto x:controller_link.grid()) {digest^=x;digest*=16777619u;}
     Serial.printf("job seed=%lu mode=%s elapsed_us=%lld verify_local_us=%lld match=%u grid=%08lx\n",
         static_cast<unsigned long>(active_job.seed),c==Completion::remote?"remote":"local",
         static_cast<long long>(elapsed),static_cast<long long>(verify_us),
-        unsigned(link.grid()==expected),static_cast<unsigned long>(digest));
-    if(link.grid()!=expected) {running=false;link.disconnect();remote_enabled=false;Serial.println("MISMATCH: stopped");}
+        unsigned(controller_link.grid()==expected),static_cast<unsigned long>(digest));
+    if(controller_link.grid()!=expected) {running=false;controller_link.disconnect();remote_enabled=false;Serial.println("MISMATCH: stopped");}
 }
 #endif
 } // namespace
@@ -164,19 +164,19 @@ void loop() {
         Frame f; if(!rx_queue||xQueueReceive(rx_queue,&f,0)!=pdTRUE) break;
         if(!remote_enabled) continue;
 #if CLUSTER_COORDINATOR
-        completed(link.receive(f,millis()));
+        completed(controller_link.receive(f,millis()));
 #else
         auto result=worker.receive(f);
         if(result.size) send_frame(result); // Busy response can be retried by coordinator.
 #endif
     }
 #if CLUSTER_COORDINATOR
-    completed(link.tick(millis(),send_frame));
-    if(running&&!link.pending()&&uint32_t(millis()-last_job)>=250) {
+    completed(controller_link.tick(millis(),send_frame));
+    if(running&&!controller_link.pending()&&uint32_t(millis()-last_job)>=250) {
         last_job=millis();job.seed=next_seed++;job.particles=512;job.steps=64;
         active_job=job;
         started_us=esp_timer_get_time();
-        if(!link.start(active_job,last_job,60,send_frame)) {running=false;Serial.println("start failed");}
+        if(!controller_link.start(active_job,last_job,60,send_frame)) {running=false;Serial.println("start failed");}
     }
 #endif
     delay(1);
