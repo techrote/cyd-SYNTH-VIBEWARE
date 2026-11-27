@@ -9,6 +9,7 @@ Sister project to [FM-1-VIBEWARE](https://github.com/techrote/FM-1-VIBEWARE). De
 - [Programme and implementation issues](https://github.com/techrote/cyd-SYNTH-VIBEWARE/issues)
 - [Engineering worker protocol](AGENTS.md)
 - [Architecture](docs/ARCHITECTURE.md) and [hardware contracts](docs/HARDWARE.md)
+- [Diviner performance characterisation](docs/PERFORMANCE.md) and [wireless compute clusters](docs/CLUSTER.md)
 - [Instrument catalogue](docs/CATALOGUE.md) and [development roadmap](docs/ROADMAP.md)
 - [Worker roster](docs/WORKERS.md) and [schedule-ready mandates](docs/SCHEDULES.md)
 - [Qualification and owner delivery](docs/QUALIFICATION.md)
@@ -42,3 +43,7 @@ The repositories remain independent. Inspect exact revisions, licenses and notic
 Develop portable C++ instrument cores, real CYD adapters and native Windows/Linux interactive evaluators. Deliver individual playable firmware candidates before attempting a collection launcher. Keep audio deadlines isolated from rendering, use bounded memory and queues, and design for one touch contact. Test the same core on host and target; host audio/screenshots are not hardware evidence.
 
 **Status: programme bootstrap only.** No firmware, CI qualification, physical tests, or schedule activation is implied. No repository-wide license decision is asserted. Keep experimental implementation PRs Draft/HOLD pending independent qualification and owner approval. No automatic flashing or merges.
+
+## Distributed architecture and performance
+
+Owner's spare ESP32-S3/C3 modules and dual-CYD configurations are explicit targets for optional wireless compute offload. Local standalone instruments remain complete. Start with [Diviner physical characterisation #8](https://github.com/techrote/cyd-SYNTH-VIBEWARE/issues/8) and [heterogeneous cluster experiments #9](https://github.com/techrote/cyd-SYNTH-VIBEWARE/issues/9); compare real end-to-end performance and failure behavior before adoption.

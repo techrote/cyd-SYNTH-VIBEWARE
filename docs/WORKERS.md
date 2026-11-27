@@ -18,7 +18,7 @@ Six workers are recommended initially, following FM-1-VIBEWARE's structure with 
 | GEN | :21 | #4 | CHRONOGRID and composition |
 | CYBER | :29 | #5 | XENOBIO and artificial life |
 | VISUAL | :37 | #6 | PHOSPHOR and optical systems |
-| HYBRID (optional) | :45 | scoped issue on activation | Distributed instruments |
+| HYBRID (optional) | :45 | #9 | Heterogeneous compute nodes and distributed instruments |
 | ACCEL (optional) | :51 | assigned bottleneck | Measured optimization |
 | QA | :57 | #7 | Independent qualification and mergedown |
 
@@ -26,7 +26,7 @@ Offsets are local-clock suggestions, not locks or promises of concurrency. Consi
 
 ## Mandates
 
-**PLATFORM:** reference touch→sound/graphics path on native and real target build; minimal versioned contracts, display strips, input, DAC/USB route, bounded queues, lifecycle, shared tools and timing. Inspect actual board/toolchain source and pin review. Unblock real downstream work. No abstract SDK before one working consumer.
+**PLATFORM:** reference touch→sound/graphics path on native and real target build; minimal versioned contracts, display strips, input, DAC/USB route, bounded queues, lifecycle, shared tools and timing. Inspect actual board/toolchain source and pin review; consume owner Diviner measurements #8 when available and coordinate #9 optional profiles. Unblock real downstream work. No abstract SDK before one working consumer.
 
 **SYNTH:** original synthesis engines with tactile expression and causal graphics. Start PHASESPACE. Compare algorithms with actual PCM and resource cost, author presets and gesture demos, deliver working engine, UI, build and tests. Later VECTORFIELD/LITHOS/physical modelling when qualified.
 
@@ -38,10 +38,10 @@ Offsets are local-clock suggestions, not locks or promises of concurrency. Consi
 
 **QA:** independently reproduce exact source and artifacts, run Linux/Windows native tests, target compile, extracted package replay, audit source/rights and physical gate; fix real defects and coordinate integration. No self-certifying authored fixes; mark provisional absent independent reproduction. Prepare owner candidates without merge.
 
-**HYBRID (optional):** SWARM standalone peer systems, optional FM-1, MIDI/OSC, touch performance and verified transport profiles. No assumed radio/USB capability. Use rate limits, disconnect/panic, safe offline fallback and replay. Coordinate shared APIs with PLATFORM. Create one scoped issue when activated, not before.
+**HYBRID (optional):** own #9 heterogeneous wireless compute nodes, CYD+S3/C3 and dual CYD; start ESP-NOW compact state/events, compare UDP/BLE, actual local-vs-offload workloads, failure/rejoin and standalone fallback. Optional FM-1/MIDI/OSC and SWARM later. Follow CLUSTER.md and PERFORMANCE.md, coordinate shared APIs with PLATFORM. #9 is opened for planning and implementation, not evidence of activation.
 
 **ACCEL (optional):** measure actual downstream bottlenecks in DSP, simulation, memory, rendering, or transfer. Compare algorithm alternatives using same workloads, output equivalence/tolerance and real timing/footprint. Separate coordinated PRs, no speculative SIMD or device performance claims. Protect sound quality and responsiveness.
 
 ## Scaling
 
-Begin with optimal six when capacity permits. Add HYBRID once an instrument merits connectivity and shared core is reliable; add ACCEL when timing/footprint evidence identifies concrete bottlenecks. Three-worker fallback preserves independent QA; combined creative lane should progress one instrument at a time. Slow creative starts if QA backlog or Actions contention rises. Every run must leave tested code, a repaired failure, or precise blocker plus a useful alternative, not a routine status report.
+Begin with optimal six when capacity permits. HYBRID may start early with portable protocol and transport experiments in parallel with core development, if a seventh slot is available; add ACCEL when timing/footprint evidence identifies concrete bottlenecks. Three-worker fallback preserves independent QA; combined creative lane should progress one instrument at a time. Slow creative starts if QA backlog or Actions contention rises. Every run must leave tested code, a repaired failure, or precise blocker plus a useful alternative, not a routine status report.

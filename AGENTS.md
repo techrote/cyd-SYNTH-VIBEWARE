@@ -20,7 +20,7 @@ Repository: techrote/cyd-SYNTH-VIBEWARE only. Programme #1. Read README.md, docs
 | CYBER | instruments/xenobio/; later dynamical systems | #5 |
 | VISUAL | instruments/phosphor/; later visual instruments | #6 |
 | QA | qualification/, catalogue/, integration coordination | #7 |
-| HYBRID (optional) | scoped instruments/swarm/, connectivity adapters in coordination with PLATFORM | Create scoped issue if activated |
+| HYBRID (optional) | scoped cluster/ and instruments/swarm/, transport adapters in coordination with PLATFORM | #9 |
 | ACCEL (optional) | measured, agreed bottleneck in a separate PR | Assigned issue |
 
 Paths are intended ownership boundaries, not proof of implemented directories. Shared interface changes need a concrete consumer and independent review. Creative workers may start native cores immediately, use thin local adapters, and submit separately scoped shared changes. QA may repair real defects in coordination; a different worker or independent job must reproduce authored fixes, or mark provisional. No silent overwrite of active work.
@@ -28,3 +28,7 @@ Paths are intended ownership boundaries, not proof of implemented directories. S
 ## Acceptance
 
 All implementation remains Draft/HOLD until independent qualification and explicit owner approval. Main is accepted reference. Charter bootstrap alone is authorized on main. No repository-wide license asserted; prefer original code and record exact source, notices, license, changes and distribution obligations before reuse. References include unmerged work; no copying merely because visible. No unattended physical flash or board configuration changes. Physical results require actual hardware evidence. Follow docs/QUALIFICATION.md. Schedules are proposed, not active merely because documented.
+
+## Performance and cluster work
+
+#8 is owner-led Diviner characterisation (see docs/PERFORMANCE.md); consume measured results and links, do not write reference repo from a scheduled worker. #9 is optional HYBRID, wireless compute nodes and dual CYD (docs/CLUSTER.md). PLATFORM can progress a minimal shared contract while HYBRID is inactive; no creative lane depends on physical node availability. Local standalone delivery and independent QA remain required.

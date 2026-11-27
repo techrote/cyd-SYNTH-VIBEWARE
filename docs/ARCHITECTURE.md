@@ -7,6 +7,7 @@ CYD-VIBEWARE is a collection of independently playable applications, not a manda
 - Standalone audiovisual instrument: portable C++17 core + thin CYD adapter and native evaluator; primary route for SYNTH, GEN, CYBER.
 - Visual instrument: same touch/render lifecycle without compulsory audio. The VISUAL lane owns this route.
 - Distributed performance application: standalone useful behavior with optional MIDI, OSC, peer or FM-1 companion. Capabilities verified per device/firmware.
+- Heterogeneous compute cluster: optional wireless S3/C3 workers and dual CYD peers executing coarse simulation/DSP/event jobs. Keep local audio clock, touch, display and fallback. See CLUSTER.md (#9) and PERFORMANCE.md (#8); no round-trip inside audio callback. Compare measured end-to-end benefit before adoption.
 - Desktop evaluator: native SDL2 (Windows/Linux) driving actual portable cores, not a parallel approximation. Headless scripted execution produces real PCM and RGB565 frames; interactive host maps mouse to single contact and clearly labels simulated hardware.
 - Collection: only after independent applications mature and measured resource costs justify common launcher. Keep standalone builds.
 
@@ -42,3 +43,7 @@ PlatformIO candidate: ESP32 Arduino framework and pinned libraries/toolchain der
 Inspect exact source revisions from README and pin reviewed dependencies. Diviner's HAL, USB PCM and native replay and cyd-MHAC's actual DSP/XY/rendering are high-value candidates, not approved source drops. Keep source/rights ledger: repo, commit/tree, path, license/notices, modifications, dependency and toolchain versions, distribution requirements. No unreviewed licensing assumptions. References remain independent.
 
 One issue-scoped branch and Draft/HOLD PR per active instrument; main accepted reference. Local adapters unblock creative lanes while shared contract stabilizes. Integrate by exact dependency SHAs and review shared changes against real consumers.
+
+## Performance-driven partitioning
+
+Use Diviner's physical profile (#8) to identify bottlenecks, then compare local and remote implementations under matched output/quality, including serialization, radio, queue, latency and failure costs (#9). Keep portable local paths; no mandatory network dependency. Native profiling is complementary, not physical evidence.

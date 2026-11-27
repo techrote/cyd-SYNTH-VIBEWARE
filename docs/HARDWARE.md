@@ -33,3 +33,7 @@ Wi-Fi/BLE/SD are opt-in capabilities; verify target revision, firmware/driver su
 ## Physical acceptance
 
 Before owner flashing: exact board/flash ID, backed-up original firmware with verified readable hashes, documented supported restore/bootloader method, compatible partition/offsets and tool versions, safe outputs, explicit owner approval. Supply instructions separately from any automated CI. Do not bundle an installable image as approved for use without these checks and rights review. Record actual board revision, setup, performance/audio/control observations and raw diagnostic evidence. Never erase, flash or probe an owner's device unattended.
+
+## Auxiliary compute profiles
+
+See PERFORMANCE.md (#8) for physical baseline and CLUSTER.md (#9) for ESP32-S3, ESP32-C3 and dual-CYD configurations. Verify exact auxiliary module, flash/PSRAM, clocks, peripherals and radio capabilities. ESP-NOW first for compact state/events; UDP for larger payloads; BLE for control. Measure radio coexistence and local deadline impact before choosing. Wired fallback needs verified pin availability, signal voltage, ground, power and bus ownership. No automatic flashing.
