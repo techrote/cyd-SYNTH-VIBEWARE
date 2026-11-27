@@ -120,3 +120,5 @@ else()
   target_compile_options(cluster_bench_test PRIVATE -Wall -Wextra -Werror -pedantic)
 endif()
 add_test(NAME cluster_bench COMMAND cluster_bench_test)
+
+add_test(NAME cluster_bench_capture COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/bench_capture_test.py)

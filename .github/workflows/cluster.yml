@@ -35,6 +35,9 @@ jobs:
           Copy-Item build/cluster/Release/cluster_multi_field_test.exe $pkg
           Copy-Item build/cluster/Release/cluster_multi_field.exe $pkg
           Copy-Item cluster/multi_field_smoke.py $pkg
+          Copy-Item cluster/bench_capture.py $pkg
+          Copy-Item cluster/bench_capture_test.py $pkg
+          Copy-Item build/cluster/Release/cluster_bench_test.exe $pkg
           Copy-Item build/cluster/Release/cluster_multi_udp.exe $pkg
           Copy-Item cluster/multi_udp_test.py $pkg
           Copy-Item cluster/dual_udp_test.py $pkg
@@ -72,6 +75,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field GDI smoke failed' }
           python './extracted cluster/multi_field_smoke.py' './extracted cluster/cluster_udp.exe' './extracted cluster/cluster_multi_field.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field GDI UDP failed' }
+          & './extracted cluster/cluster_bench_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted bench replay failed' }
+          python './extracted cluster/bench_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted bench capture failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -111,6 +118,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/multi_field_test.cpp -o multi_field_sanitized
       - run: ./multi_field_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/bench_test.cpp -o bench_sanitized
+      - run: ./bench_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1

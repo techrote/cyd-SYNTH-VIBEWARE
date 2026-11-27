@@ -70,11 +70,12 @@ void finish_bench(const char* reason) {
 }
 void start_bench() {
     if(!field.replay_reset())return;
-    capture={};loop_hist={};control_hist={};baseline=panel.evidence();seen_batches=field.stats().batches;
-    heap_min=ESP.getFreeHeap();tx_before=tx_fail.load();drop_before=dropped.load();reject_before=rejected.load();
-    for(unsigned i=0;i<configured_nodes;++i)link_before[i]=field.link_stats(i);
+    capture={};loop_hist={};control_hist={};seen_batches=field.stats().batches;
     Serial.printf("bench begin schema=1 nodes=%u remote=%u audio=%u count=%u steps=64 particles=1024\n",configured_nodes,unsigned(configured_nodes&&field.remote_enabled()),unsigned(bench_audio),bench::batches);
-    Serial.flush();bench_begin=esp_timer_get_time();bench_run=true;bench_wait=false;
+    Serial.flush();
+    baseline=panel.evidence();heap_min=ESP.getFreeHeap();tx_before=tx_fail.load();drop_before=dropped.load();reject_before=rejected.load();
+    for(unsigned i=0;i<configured_nodes;++i)link_before[i]=field.link_stats(i);
+    bench_begin=esp_timer_get_time();bench_run=true;bench_wait=false;
 }
 bool collect_batch() {
     if(field.stats().batches==seen_batches)return true;
@@ -300,11 +301,11 @@ void loop() {
 #if CLUSTER_MULTI_FIELD
     const uint32_t now=millis();
 #ifdef CLUSTER_FIELD_BENCH
-    const auto loop_start=esp_timer_get_time();
+    auto loop_start=esp_timer_get_time();
 #endif
     panel.input(field,now);
 #ifdef CLUSTER_FIELD_BENCH
-    if(bench_wait&&!field.pending())start_bench();
+    if(bench_wait&&!field.pending()){start_bench();loop_start=esp_timer_get_time();}
     if(bench_run&&(digitalRead(0)==LOW||(bench_audio&&!panel.armed())))finish_bench("panic");
     if(bench_run)panel.scripted(field,bench::gesture(field.pending()?field.next_seed()-1u:field.next_seed()),bench_audio);
 #endif
