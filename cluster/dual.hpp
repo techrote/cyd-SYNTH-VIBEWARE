@@ -128,10 +128,9 @@ public:
         if(leader_) {
             // At most one future event per loop; skip stale periods after stalls.
             if(delta(next_,now)<0&&uint32_t(now-next_)>=period)next_=now+lookahead;
-            if(delta(next_,now)<=int64_t(lookahead)&&
-               (!count_||queue_[0].due!=next_)) {
+            if(count_==0&&delta(next_,now)<=int64_t(lookahead)) {
                 const uint8_t note=uint8_t(local_note_++%8);
-                if(count_==0) {
+                {
                     queue_[count_++]={next_,0,note};
                     if(network_&&seq_!=0xffffffffu) {
                         auto f=frame(Kind::pulse_event,epoch_,++seq_);auto* p=f.bytes.data()+header;
