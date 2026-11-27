@@ -1,72 +1,8 @@
-#include "link.hpp"
-#include <algorithm>
-#include <chrono>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <thread>
-#include <vector>
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-using Socket=SOCKET;
-using AddrLen=int;
-constexpr Socket invalid_socket=INVALID_SOCKET;
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <unistd.h>
-using Socket=int;
-using AddrLen=socklen_t;
-constexpr Socket invalid_socket=-1;
-#endif
-using namespace cluster;
-using Clock=std::chrono::steady_clock;
-using namespace std::chrono_literals;
-static uint32_t ms() { return uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count()); }
-[[noreturn]] static void fail(const char* why) { std::cerr<<why<<'\n'; std::exit(1); }
-class Udp {
-    Socket s_;
-    sockaddr_in peer_{};
-    static sockaddr_in address(unsigned port) {
-        sockaddr_in a{}; a.sin_family=AF_INET; a.sin_addr.s_addr=htonl(INADDR_LOOPBACK); a.sin_port=htons(uint16_t(port)); return a;
-    }
-public:
-    unsigned rejected=0;
-    Udp(unsigned own,unsigned peer):s_(::socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP)),peer_(address(peer)) {
-        if(s_==invalid_socket) fail("socket failed");
-        auto a=address(own);
-        if(::bind(s_,reinterpret_cast<const sockaddr*>(&a),sizeof(a))!=0) fail("bind failed");
-#ifdef _WIN32
-        u_long yes=1; if(ioctlsocket(s_,FIONBIO,&yes)!=0) fail("nonblocking failed");
-#else
-        if(fcntl(s_,F_SETFL,O_NONBLOCK)!=0) fail("nonblocking failed");
-#endif
-    }
-    ~Udp() {
-#ifdef _WIN32
-        closesocket(s_);
-#else
-        close(s_);
-#endif
-    }
-    bool send(const Frame& f) {
-        if(!f.size||f.size>max_frame) return false;
-        return sendto(s_,reinterpret_cast<const char*>(f.bytes.data()),int(f.size),0,reinterpret_cast<const sockaddr*>(&peer_),sizeof(peer_))==int(f.size);
-    }
-    bool receive(Frame& f) {
-        std::array<char,max_frame+1> buf{}; sockaddr_in src{}; AddrLen nsrc=sizeof(src);
-        auto n=recvfrom(s_,buf.data(),int(buf.size()),0,reinterpret_cast<sockaddr*>(&src),&nsrc);
-        if(n<0) return false;
-        if(src.sin_addr.s_addr!=peer_.sin_addr.s_addr||src.sin_port!=peer_.sin_port||n<int(header)||n>int(max_frame)) { ++rejected; return false; }
-        f={}; f.size=std::size_t(n); std::memcpy(f.bytes.data(),buf.data(),f.size); return true;
-    }
-};
-static void worker(Udp& udp,bool faults) {
+#include "udp_transport.hpp"
+static void worker(Udp& udp,bool faults,bool serve) {
     Worker w(91); uint32_t last=0;
     std::cout<<"READY"<<std::endl;
-    const auto until=Clock::now()+20s;
+    const auto until=Clock::now()+(serve?1800s:20s);
     while(Clock::now()<until) {
         Frame f;
         if(!udp.receive(f)) { std::this_thread::sleep_for(1ms); continue; }
@@ -106,7 +42,7 @@ static void controller(Udp& udp,bool faults) {
     std::cout<<"PASS matched=100 remote="<<link.stats.remote<<" local="<<link.stats.local<<" retries="<<link.stats.retries<<" hello="<<link.stats.hello<<" accepted_tx="<<link.stats.sent<<" busy="<<link.stats.busy<<" rejected="<<udp.rejected<<'\n';
 }
 int main(int argc,char** argv) {
-    if(argc!=5) fail("usage: cluster_udp worker|controller own-port peer-port clean|faults");
+    if(argc!=5) fail("usage: cluster_udp worker|serve|controller own-port peer-port clean|faults");
 #ifdef _WIN32
     WSADATA data{}; if(WSAStartup(MAKEWORD(2,2),&data)!=0) fail("WSAStartup failed");
 #endif
@@ -114,7 +50,7 @@ int main(int argc,char** argv) {
     const bool faults=std::strcmp(argv[4],"faults")==0;
     if(!faults&&std::strcmp(argv[4],"clean")!=0) fail("invalid mode");
     { Udp udp(port(argv[2]),port(argv[3]));
-      if(std::strcmp(argv[1],"worker")==0) worker(udp,faults);
+      if(std::strcmp(argv[1],"worker")==0||std::strcmp(argv[1],"serve")==0) worker(udp,faults,std::strcmp(argv[1],"serve")==0);
       else if(std::strcmp(argv[1],"controller")==0) controller(udp,faults);
       else fail("invalid role"); }
 #ifdef _WIN32

@@ -27,7 +27,11 @@ jobs:
           New-Item -ItemType Directory -Path $pkg | Out-Null
           Copy-Item build/cluster/Release/cluster_native.exe $pkg
           Copy-Item build/cluster/Release/cluster_udp.exe $pkg
+          Copy-Item build/cluster/Release/cluster_field.exe $pkg
+          Copy-Item build/cluster/Release/cluster_field_replay.exe $pkg
           Copy-Item cluster/udp_test.py $pkg
+          & "$pkg/cluster_field_replay.exe" "$pkg/field-demo"
+          if ($LASTEXITCODE -ne 0) { throw 'Field replay/media failed' }
           Copy-Item cluster/README.md $pkg
           git rev-parse HEAD | Set-Content "$pkg/source-commit.txt"
           Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip
@@ -36,6 +40,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted replay failed' }
           python './extracted cluster/udp_test.py' './extracted cluster/cluster_udp.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UDP loopback failed' }
+          & './extracted cluster/cluster_field_replay.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted field replay failed' }
+          & './extracted cluster/cluster_field.exe' --smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI smoke failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -51,6 +59,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/native.cpp -o cluster_sanitized
       - run: ./cluster_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/field_replay.cpp -o field_sanitized
+      - run: ./field_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1
