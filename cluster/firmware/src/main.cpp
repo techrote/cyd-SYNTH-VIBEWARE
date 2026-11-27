@@ -226,7 +226,8 @@ void loop() {
 #if CLUSTER_FIELD
     const uint32_t now=millis();panel.input(interactive,now);interactive.tick(now,send_frame);
 #if CLUSTER_DUAL
-    musical.tick(millis(),send_frame);panel.output(interactive,millis(),true,musical.sound(millis()));
+    musical.tick(millis(),send_frame);const uint32_t beat_now=millis();
+    panel.output(interactive,beat_now,true,dual::articulate(musical.sound(beat_now),panel.x(),panel.y()),!musical.leader(),musical.synchronized(beat_now));
 #else
     panel.output(interactive,millis());
 #endif

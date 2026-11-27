@@ -36,6 +36,8 @@ jobs:
           Copy-Item cluster/field_udp_smoke.py $pkg
           & "$pkg/cluster_field_replay.exe" "$pkg/field-demo"
           if ($LASTEXITCODE -ne 0) { throw 'Field replay/media failed' }
+          & "$pkg/cluster_dual_test.exe" "$pkg/dual-demo.wav"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual replay/media failed' }
           Copy-Item cluster/README.md $pkg
           git rev-parse HEAD | Set-Content "$pkg/source-commit.txt"
           Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip

@@ -35,6 +35,7 @@ class Panel {
     std::atomic<bool> audio_fault_{false};
     uint32_t last_touch_=0,last_frame_=0,frames_=0,slice_max_us_=0,touch_max_us_=0;
     unsigned y_=av::height;
+    uint16_t touch_x_=32768,touch_y_=32768;
     Grid snapshot_{};
     Job snapshot_job_{};
     bool snapshot_remote_=false;
@@ -109,11 +110,13 @@ public:
             const auto p=touch_.getPoint();
             touch_max_us_=std::max(touch_max_us_,uint32_t(esp_timer_get_time()-before));
             contact_=p.z>=400;
-            if(contact_)field.xy(axis(p.y),axis(4100-int(p.x)));
+            if(contact_){touch_x_=axis(p.y);touch_y_=axis(4100-int(p.x));field.xy(touch_x_,touch_y_);}
         }
         field.gate(contact_&&armed_&&uint32_t(now-last_touch_)<=40);
     }
-    void output(const av::Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0) {
+    uint16_t x()const{return touch_x_;}
+    uint16_t y()const{return touch_y_;}
+    void output(const av::Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0,bool follower=false,bool synced=false) {
         word_.store(armed_&&contact_&&uint32_t(now-last_touch_)<=40?(timed?timed_word:field.sound()):0,std::memory_order_release);
         lease_.store(now,std::memory_order_release);
         if(!display_)return;
@@ -132,8 +135,9 @@ public:
         if(y_==av::height) {
             screen_.fillRect(0,224,320,16,uint16_t(0));
             screen_.setTextColor(uint16_t(0xffff));screen_.setTextSize(1);
-            screen_.drawString(timed?"DUAL":(snapshot_remote_?"REMOTE":"LOCAL"),3,227);
+            screen_.drawString(timed?(follower?(synced?"FOLLOW SYNC":"FOLLOW LOCAL"):"LEADER"):(snapshot_remote_?"REMOTE":"LOCAL"),3,227);
             screen_.drawString(audio_fault_.load()?"AUDIO FAULT":(armed_?"AUDIO ARMED":"MUTED"),90,227);
+            if(timed)screen_.fillRect(305,227,10,10,timed_word?uint16_t(0xffe0):uint16_t(0x4208));
             ++frames_;
         }
         screen_.endWrite();

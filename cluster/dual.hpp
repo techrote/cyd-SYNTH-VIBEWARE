@@ -45,6 +45,16 @@ inline uint32_t voice_word(uint8_t note,bool follower) {
     constexpr std::array<uint8_t,8> a{{0,1,0,2,0,1,3,2}},b{{2,3,1,3,2,1,3,1}};
     return uint32_t(190)<<(8*(follower?b[note%8]:a[note%8]));
 }
+// Touch X selects a register rotation, Y controls accent (25..100%).
+// Preserve event timing and the single selected band. No audio state mutation.
+inline uint32_t articulate(uint32_t word,uint16_t x,uint16_t y) {
+    const unsigned shift=unsigned(x>>14)*8;
+    const uint32_t rotated=shift?((word<<shift)|(word>>(32-shift))):word;
+    const uint32_t gain=64u+uint32_t(y)*191u/65535u;
+    uint32_t out=0;
+    for(unsigned i=0;i<4;++i)out|=(((rotated>>(8*i))&255u)*gain/255u)<<(8*i);
+    return out;
+}
 // One control-loop owner, no allocation, no network/audio callback coupling.
 // A leader emits future pulses; follower translates them into its own clock.
 // Both voices run locally. Touch/arm/mute remains the panel's responsibility.
