@@ -25,7 +25,7 @@ class Multi {
     Cohorts jobs_{};
     unsigned nodes_,next_=0,finished_=0;
     uint32_t budget_=0;
-    bool active_=false;
+    bool active_=false,remote_=true;
     void finish(unsigned slot,Completion c) {
         if(c==Completion::none||assigned_[slot]<0) return;
         results_[std::size_t(assigned_[slot])]=links_[slot].grid();
@@ -41,6 +41,8 @@ public:
     Grid grid{};
     MultiStats stats{};
     bool active() const { return active_; }
+    void remote(bool on) { if(!on&&remote_) for(auto& link:links_) link.disconnect(); remote_=on; }
+    bool remote_enabled() const { return remote_; }
     bool ready(unsigned slot) const { return slot<nodes_&&links_[slot].ready(); }
     const LinkStats& link_stats(unsigned slot) const { return links_[slot].stats; } // slot 0 or 1
     bool begin(const Cohorts& jobs,uint32_t budget) {
@@ -58,7 +60,7 @@ public:
         }
         for(unsigned slot=0;slot<nodes_;++slot) {
             auto tx=[&](const Frame& f){return send(slot,f);};
-            finish(slot,links_[slot].tick(now,tx));
+            finish(slot,links_[slot].tick(now,tx,remote_));
         }
         for(unsigned slot=0;slot<nodes_&&active_&&next_<2;++slot) {
             if(assigned_[slot]>=0) continue;
@@ -72,7 +74,7 @@ public:
         }
     }
     void receive(unsigned slot,const Frame& f,uint32_t now) {
-        if(slot<nodes_) finish(slot,links_[slot].receive(f,now));
+        if(remote_&&slot<nodes_) finish(slot,links_[slot].receive(f,now));
     }
     void disconnect(unsigned slot) { if(slot<nodes_) links_[slot].disconnect(); }
 };

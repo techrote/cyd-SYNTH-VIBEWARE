@@ -3,6 +3,10 @@
 // default credentials or boot-time radio; does not replace the field instrument.
 #include "../../multi.hpp"
 #include "../../pairing.hpp"
+#if CLUSTER_MULTI_FIELD
+#include "../../multi_field.hpp"
+#include "field_panel.hpp"
+#endif
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -29,12 +33,19 @@ std::array<bool,2> staged{};
 std::array<Frame,2> outgoing{};
 std::atomic<uint32_t> busy{0}, rejected{0}, dropped{0}, tx_fail{0};
 unsigned configured_nodes=0, round_robin=0;
-bool attempted=false, configured=false, running=false;
+bool attempted=false, configured=false;
+#if CLUSTER_MULTI_FIELD
+av::MultiField field;
+field_panel::Panel panel;
+uint32_t control_max_us=0;
+#else
+bool running=false;
 Multi multi(0,1,2);
 Cohorts current{};
 unsigned seed=1;
 uint32_t next_start=0, remote_before=0, local_before=0;
 int64_t started_us=0;
+#endif
 char line[112]{};
 std::size_t used=0;
 bool overflow=false;
@@ -82,7 +93,9 @@ bool configure(unsigned nodes) {
     if(nodes==2&&(staging[0].peer==staging[1].peer||staging[0].epoch==staging[1].epoch||
                   staging[0].pmk!=staging[1].pmk||staging[0].lmk==staging[1].lmk)) return false;
     attempted=true; configured_nodes=nodes;
+    #if !CLUSTER_MULTI_FIELD
     multi=Multi(nodes,nodes?staging[0].epoch:1,nodes==2?staging[1].epoch:2);
+#endif
     for(unsigned i=0;i<nodes;++i) peers[i]=staging[i].peer;
     bool initialized=false,ok=true;
     if(nodes) {
@@ -101,6 +114,9 @@ bool configure(unsigned nodes) {
         if(ok) ok=esp_now_register_send_cb(on_sent)==ESP_OK;
         if(ok) ok=esp_now_register_recv_cb(on_receive)==ESP_OK;
     }
+    #if CLUSTER_MULTI_FIELD
+    if(ok) field.configure(nodes,nodes?staging[0].epoch:1,nodes==2?staging[1].epoch:2);
+#endif
     wipe(staging.data(),sizeof(staging)); staged={};
     if(!ok) {
         if(initialized) esp_now_deinit();
@@ -109,14 +125,26 @@ bool configure(unsigned nodes) {
     configured=true; return true;
 }
 void status() {
+#if CLUSTER_MULTI_FIELD
+    const auto& stats=field.stats();
+    Serial.printf("configured=%u nodes=%u pending=%u remote_enabled=%u batches=%lu remote=%lu local=%lu heap=%u min_heap=%u control_max_us=%lu tx_fail=%lu rx_drop=%lu rx_reject=%lu\n",unsigned(configured),configured_nodes,unsigned(field.pending()),unsigned(field.remote_enabled()),static_cast<unsigned long>(stats.batches),static_cast<unsigned long>(stats.remote),static_cast<unsigned long>(stats.local),unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()),static_cast<unsigned long>(control_max_us),static_cast<unsigned long>(tx_fail.load()),static_cast<unsigned long>(dropped.load()),static_cast<unsigned long>(rejected.load()));
+    panel.status();
+#else
     Serial.printf("configured=%u nodes=%u active=%u running=%u batches=%lu remote=%lu local=%lu heap=%u min_heap=%u tx_busy=%lu tx_fail=%lu rx_drop=%lu rx_reject=%lu\n",
         unsigned(configured),configured_nodes,unsigned(multi.active()),unsigned(running),
         static_cast<unsigned long>(multi.stats.batches),static_cast<unsigned long>(multi.stats.remote),static_cast<unsigned long>(multi.stats.local),
         unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()),static_cast<unsigned long>(busy.load()),
         static_cast<unsigned long>(tx_fail.load()),static_cast<unsigned long>(dropped.load()),static_cast<unsigned long>(rejected.load()));
+#endif
     for(unsigned i=0;i<configured_nodes;++i) {
+#if CLUSTER_MULTI_FIELD
+        const auto& s=field.link_stats(i);
+        const bool ready=field.ready(i);
+#else
         const auto& s=multi.link_stats(i);
-        Serial.printf("slot=%u ready=%u remote=%lu local=%lu retry=%lu enqueue=%lu busy=%lu\n",i,unsigned(multi.ready(i)),
+        const bool ready=multi.ready(i);
+#endif
+        Serial.printf("slot=%u ready=%u remote=%lu local=%lu retry=%lu enqueue=%lu busy=%lu\n",i,unsigned(ready),
             static_cast<unsigned long>(s.remote),static_cast<unsigned long>(s.local),static_cast<unsigned long>(s.retries),
             static_cast<unsigned long>(s.sent),static_cast<unsigned long>(s.busy));
     }
@@ -133,6 +161,17 @@ void command(const char* text,std::size_t n) {
         Serial.println(ok?"peer staged (no radio)":"peer rejected"); return;
     }
     if(!std::strcmp(text,"status")) { status(); return; }
+#if CLUSTER_MULTI_FIELD
+    if(!std::strcmp(text,"audio on")) { Serial.println(panel.arm()?"audio armed":"audio arm failed"); return; }
+    if(!std::strcmp(text,"mute")) { panel.mute(); return; }
+    if(!std::strcmp(text,"local")) { field.remote(false); outgoing={}; return; }
+    if(!std::strcmp(text,"remote")) { field.remote(configured&&configured_nodes>0); return; }
+    if(n==8&&!std::memcmp(text,"enable ",7)&&(text[7]=='1'||text[7]=='2')) {
+        const unsigned nodes=unsigned(text[7]-'0');
+        Serial.println(configure(nodes)?"peers configured":"enable rejected; check pairing or reboot");
+        return;
+    }
+#else
     if(!std::strcmp(text,"stop")) { running=false; return; }
     if(n==5&&!std::memcmp(text,"run ",4)&&text[4]>='0'&&text[4]<='2') {
         const unsigned nodes=unsigned(text[4]-'0');
@@ -142,6 +181,7 @@ void command(const char* text,std::size_t n) {
         seed=1; running=true; next_start=millis()+200u;
         Serial.println("60 matched batches; reference compute measured outside batch; stop ends new batches"); return;
     }
+    #endif
     Serial.println("unknown command");
 }
 void serial_poll() {
@@ -157,6 +197,7 @@ void serial_poll() {
         }
     }
 }
+#if !CLUSTER_MULTI_FIELD
 void completed() {
     const int64_t elapsed=esp_timer_get_time()-started_us;
     const int64_t before=esp_timer_get_time();
@@ -173,6 +214,7 @@ void completed() {
     ++seed;
     next_start=millis()+150u;
 }
+ #endif
 } // namespace
 void setup() {
     Serial.begin(115200);
@@ -180,10 +222,28 @@ void setup() {
     if(esp_read_mac(own.data(),ESP_MAC_WIFI_STA)!=ESP_OK) attempted=true;
     Serial.printf("cluster multi coordinator mac=%02x%02x%02x%02x%02x%02x channel=%u queue=%u; no boot radio\n",
         unsigned(own[0]),unsigned(own[1]),unsigned(own[2]),unsigned(own[3]),unsigned(own[4]),unsigned(own[5]),unsigned(channel),unsigned(rx!=nullptr));
+#if CLUSTER_MULTI_FIELD
+    Serial.println(panel.begin()?"multi field ready; audio off":"panel init failed");
+    Serial.println("pair0/pair1 <peer-mac12> <epoch8> <pmk32> <lmk32>; enable 1|2; local; remote; audio on; mute; status");
+#else
     Serial.println("pair0/pair1 <peer-mac12> <epoch8> <pmk32> <lmk32>; run 0|1|2; stop; status");
+#endif
 }
 void loop() {
     serial_poll();
+#if CLUSTER_MULTI_FIELD
+    const uint32_t now=millis();
+    panel.input(field,now);
+    const int64_t before=esp_timer_get_time();
+    for(unsigned i=0;i<4;++i) {
+        Packet p{}; if(!rx||xQueueReceive(rx,&p,0)!=pdTRUE) break;
+        field.receive(p.slot,p.frame,millis());
+    }
+    field.tick(millis(),enqueue);
+    if(configured&&field.remote_enabled()) service_tx();
+    control_max_us=std::max(control_max_us,uint32_t(esp_timer_get_time()-before));
+    panel.output(field,millis(),false,0,false,false,field.mode());
+#else
     if(!configured) { delay(1); return; }
     const bool was_active=multi.active();
     for(unsigned i=0;i<4;++i) {
@@ -198,6 +258,7 @@ void loop() {
         started_us=esp_timer_get_time();
         if(!multi.begin(current,100)) { running=false; Serial.println("batch start failed"); }
     }
+    #endif
     delay(1);
 }
 #endif

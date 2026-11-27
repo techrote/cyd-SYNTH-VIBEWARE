@@ -32,6 +32,7 @@ jobs:
           Copy-Item build/cluster/Release/cluster_dual_test.exe $pkg
           Copy-Item build/cluster/Release/cluster_dual_udp.exe $pkg
           Copy-Item build/cluster/Release/cluster_multi_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_multi_field_test.exe $pkg
           Copy-Item build/cluster/Release/cluster_multi_udp.exe $pkg
           Copy-Item cluster/multi_udp_test.py $pkg
           Copy-Item cluster/dual_udp_test.py $pkg
@@ -63,6 +64,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted multi replay failed' }
           python './extracted cluster/multi_udp_test.py' './extracted cluster/cluster_multi_udp.exe' './extracted cluster/cluster_udp.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted multi UDP failed' }
+          & './extracted cluster/cluster_multi_field_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field replay failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -96,6 +99,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/multi_test.cpp -o multi_sanitized
       - run: ./multi_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/multi_field_test.cpp -o multi_field_sanitized
+      - run: ./multi_field_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1

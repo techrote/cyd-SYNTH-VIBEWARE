@@ -39,6 +39,7 @@ class Panel {
     Grid snapshot_{};
     Job snapshot_job_{};
     bool snapshot_remote_=false;
+    const char* snapshot_mode_=nullptr;
     std::array<uint16_t,av::width> rgb_{};
     std::array<lgfx::rgb565_t,av::width> line_{};
     static void audio_task(void* arg) {
@@ -103,7 +104,7 @@ public:
         armed_=true;return true;
     }
     void mute() {armed_=false;word_.store(0,std::memory_order_release);}
-    void input(av::Field& field,uint32_t now) {
+    template<class Field> void input(Field& field,uint32_t now) {
         if(digitalRead(0)==LOW||audio_fault_.load())mute();
         if(display_&&uint32_t(now-last_touch_)>=12) {
             last_touch_=now;const auto before=esp_timer_get_time();
@@ -116,14 +117,14 @@ public:
     }
     uint16_t x()const{return touch_x_;}
     uint16_t y()const{return touch_y_;}
-    void output(const av::Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0,bool follower=false,bool synced=false) {
+    template<class Field> void output(const Field& field,uint32_t now,bool timed=false,uint32_t timed_word=0,bool follower=false,bool synced=false,const char* mode=nullptr) {
         word_.store(armed_&&contact_&&uint32_t(now-last_touch_)<=40?(timed?timed_word:field.sound()):0,std::memory_order_release);
         lease_.store(now,std::memory_order_release);
         if(!display_)return;
         if(y_==av::height) {
             if(uint32_t(now-last_frame_)<100)return;
             last_frame_=now;y_=0;snapshot_=field.grid();snapshot_job_=field.shown();
-            snapshot_remote_=field.last_completion()==Completion::remote;
+            snapshot_remote_=field.last_completion()==Completion::remote; snapshot_mode_=mode;
         }
         const auto before=esp_timer_get_time();
         screen_.startWrite();
@@ -135,7 +136,7 @@ public:
         if(y_==av::height) {
             screen_.fillRect(0,224,320,16,uint16_t(0));
             screen_.setTextColor(uint16_t(0xffff));screen_.setTextSize(1);
-            screen_.drawString(timed?(follower?(synced?"FOLLOW SYNC":"FOLLOW LOCAL"):"LEADER"):(snapshot_remote_?"REMOTE":"LOCAL"),3,227);
+            screen_.drawString(timed?(follower?(synced?"FOLLOW SYNC":"FOLLOW LOCAL"):"LEADER"):(snapshot_mode_?snapshot_mode_:(snapshot_remote_?"REMOTE":"LOCAL")),3,227);
             screen_.drawString(audio_fault_.load()?"AUDIO FAULT":(armed_?"AUDIO ARMED":"MUTED"),90,227);
             if(timed)screen_.fillRect(305,227,10,10,timed_word?uint16_t(0xffe0):uint16_t(0x4208));
             ++frames_;
