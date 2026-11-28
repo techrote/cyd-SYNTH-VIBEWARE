@@ -218,3 +218,29 @@ implementation. M10 package pin remains available for independent QA.
 ### Cooperative reaction scheduling (M12)
 
 Reaction targets service at most one eight-row lattice slice (512 cell updates) or one 768-cell projection per main-loop iteration, 25 slices per completed tick. The bank switch is constant-time. Touch, UDP receive and display strips continue between slices; the existing loop delay remains. The requested 50 ms period is not guaranteed, and there is no catch-up burst. The CYD pauses pending local computation while fresh remote snapshots are selected, resumes on local override/expiry, and never publishes partially calculated local pixels or sequence numbers. Local/remote phase continuity is still not promised. The worker sends only at complete-tick publication. Lightweight spatial profiles retain synchronous advancement. `SPATIAL_SLICE_V1` (reaction profiles only) adds cumulative slice count, maximum individual compute slice duration, maximum summed compute duration per completed tick (excludes pauses), pending flag and accumulated pending compute duration. Existing `compute_us` includes partial-tick work; `steps` counts only complete ticks. A matched capture should begin/end with pending state accounted for, and distinguish work duration from elapsed tick cadence. Bounds are algorithmic, not physical latency guarantees. No audio on these profiles.
+
+### M13 — offline boundary-aware CYD panel capture
+
+Use the **existing M12 firmware**. For each arm, record precisely two complete
+`meter` groups on the CYD, with a steady interval between them. Do not include
+provisioning secrets. Repeat the full comparison with fresh output names. Example:
+
+    python spatial_capture.py --model reaction --firmware-sha256 <actual-image-digest> --board "<actual CYD revision>" --out repetition1.json radio-off=off.log radio-local=local.log s3=s3.log c3=c3.log outage=outage.log
+
+A radio-off reference is required; other arms can be omitted if not run. Use
+`--model light` for the original spatial model (no slice row). Record exact
+auxiliary firmware, board, clock, AP and outage event timestamps separately.
+The tool checks schema/order, counter monotonicity, status consistency, slice
+phase and incomplete capture. No output file is overwritten. Log SHA-256 is
+retained, not raw log contents. Radio and node labels remain operator-reported;
+boundary flags do not prove continuous state. Outage is a label, not a proven
+fault event. Do not compare different models or firmware in one invocation.
+
+Window compute duty uses actual cumulative work delta; completed-tick mean uses
+compute delta + starting pending compute - ending pending compute, so a partial
+tick is neither double counted nor attributed to the wrong completed tick. A
+zero-completion window has no mean. Slice maxima and heap minimum are lifetime,
+not interval statistics. Frame cadence counts completed frames; accepted bytes
+are application payload only. Serial boundary skew remains; no interval p95/p99,
+RF loss, one-way age, audio, or actual speedup claim. Native matched-state tests
+remain distinct. Synthetic parser tests: `python spatial_capture_test.py`.

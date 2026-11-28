@@ -189,3 +189,5 @@ add_test(NAME cluster_reaction COMMAND cluster_reaction)
 add_test(NAME cluster_reaction_udp COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/spatial_udp_test.py $<TARGET_FILE:cluster_reaction>)
 set_tests_properties(cluster_reaction_udp PROPERTIES TIMEOUT 30)
 add_test(NAME cluster_reaction_bench COMMAND cluster_reaction_bench)
+
+add_test(NAME cluster_spatial_capture COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/spatial_capture_test.py)
