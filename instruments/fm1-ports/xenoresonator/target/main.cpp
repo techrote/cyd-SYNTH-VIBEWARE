@@ -12,7 +12,7 @@ class Display:public lgfx::LGFX_Device{
 static Display lcd;static SPIClass touchSpi(VSPI);static XPT2046_Touchscreen touch(33);
 static Exchange bus;static std::atomic<bool> armed{false},fault{false};static bool screen=false;
 static void audio(void*){Engine e;uint32_t last=0,alarm=0;int16_t pcm[128];uint16_t stereo[256];while(true){
- if(!armed.load()){e.panic();e.release();last=bus.input.load();}else bus.pump(e,last,alarm);
+ if(!armed.load())bus.discard(e,last,alarm);else bus.pump(e,last,alarm);
  e.render(pcm,128);bus.publish(e.view());for(unsigned i=0;i<128;++i){int v=std::clamp(32768+int(pcm[i])/2,0,65535);stereo[2*i]=stereo[2*i+1]=uint16_t(v&0xff00);}size_t written=0;if(i2s_write(I2S_NUM_0,stereo,sizeof(stereo),&written,pdMS_TO_TICKS(20))!=ESP_OK||written!=sizeof(stereo)){armed=false;fault=true;i2s_set_dac_mode(I2S_DAC_CHANNEL_DISABLE);vTaskDelete(nullptr);}
  }}
 void setup(){Serial.begin(115200);pinMode(21,OUTPUT);digitalWrite(21,LOW);pinMode(0,INPUT_PULLUP);screen=lcd.init();if(!screen)return;lcd.setRotation(5);digitalWrite(21,HIGH);touchSpi.begin(25,39,32,33);touch.begin(touchSpi);touch.setRotation(0);
