@@ -1,0 +1,65 @@
+name: QA batch 003 independent desktop replay
+on:
+  pull_request:
+    paths:
+      - 'qualification/batch003.py'
+      - '.github/workflows/qa-batch-003.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: phasespace-windows
+          run-id: 46108123157
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-windows
+          run-id: 46108123155
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - uses: actions/download-artifact@v4
+        with:
+          name: chronogrid-windows
+          run-id: 46108951057
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-strip-m4-windows-candidate
+          run-id: 46106372662
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - name: Verify and replay all four exact extracted desktop packages
+        run: python qualification/batch003.py replay 'pinned inner archives' 'independent extracted batch 003'
+      - uses: actions/checkout@v4
+        with:
+          ref: 772a678a3963c6200a9afbcd59806618999dfa3c
+          path: platform-source
+      - uses: actions/checkout@v4
+        with:
+          ref: 072ede0c2909836f90639d2112ea3786d770795d
+          path: consumer
+      - name: Verify independent PLATFORM and consumer source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git -C platform-source rev-parse HEAD).Trim() -ne '772a678a3963c6200a9afbcd59806618999dfa3c') { throw 'wrong platform head' }
+          if ((git -C platform-source rev-parse 'HEAD^{tree}').Trim() -ne 'fcc12193acef5a385618b330a86e805a9a864569') { throw 'wrong platform tree' }
+          if ((git -C consumer rev-parse HEAD).Trim() -ne '072ede0c2909836f90639d2112ea3786d770795d') { throw 'wrong consumer head' }
+          if ((git -C consumer rev-parse 'HEAD^{tree}').Trim() -ne '0b1e4ec39cdd50ecfc7b8105c7daf4c9f7cdd52a') { throw 'wrong consumer tree' }
+      - run: python platform-source/platform/reference-strip/prepare.py consumer
+      - run: cmake -S consumer/instruments/phasespace -B 'independent platform build' -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - run: cmake --build 'independent platform build' --config Release
+      - run: ctest --test-dir 'independent platform build' -C Release --output-on-failure -V
