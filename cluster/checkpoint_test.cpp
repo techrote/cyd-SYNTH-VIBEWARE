@@ -93,7 +93,7 @@ int main(){
     check(paced.poll(300,[](const cp::Packet&){return false;})==cp::PacedSender::Result::failed&&!paced.active(),"failed send abort");
     check(paced.start(91,worker,400),"cancel start");paced.cancel();
     check(paced.poll(400,sink)==cp::PacedSender::Result::idle,"cancel no send");
-    std::cout<<"paced_sender_bytes="<<sizeof(cp::PacedSender)<<'\\n';
+    std::cout<<"paced_sender_bytes="<<sizeof(cp::PacedSender)<<'\n';
     // Host only timing of complete encode/reassembly/restore; no sockets/radio.
     check(worker.export_checkpoint(state),"benchmark export");
     auto start=std::chrono::steady_clock::now();
