@@ -60,6 +60,10 @@ public:
     void cancel() { pressed_ = false; trip(); }
     // BOOT / emergency key may be held while the touch contact is still down.
     void emergency() { trip(); }
+    // Durable request generation, independent of consumer acknowledgement.
+    uint32_t emergency_generation() const {
+        return requested_.load(std::memory_order_acquire);
+    }
     bool emergency_pending() const {
         return requested_.load(std::memory_order_acquire) != acknowledged_.load(std::memory_order_relaxed);
     }
@@ -78,6 +82,21 @@ public:
         e = queue_[t % slots];
         tail_.store(t + 1, std::memory_order_release);
         return true;
+    }
+};
+
+// Audio backend only. Acknowledge a generation only after a successful device
+// queue reset; do not confuse the engine acknowledgement with a driver drain.
+enum class DrainResult { Unchanged, Drained, Failed };
+class EmergencyDrain {
+    uint32_t drained_ = 0;
+public:
+    template<class Reset> DrainResult service(const Controls& controls, Reset reset) {
+        const auto generation = controls.emergency_generation();
+        if (generation == drained_) return DrainResult::Unchanged;
+        if (!reset()) return DrainResult::Failed;
+        drained_ = generation;
+        return DrainResult::Drained;
     }
 };
 

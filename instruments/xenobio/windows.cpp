@@ -25,15 +25,21 @@ static void audio(){
     for(unsigned i=0;i<hdr.size();++i){hdr[i].lpData=reinterpret_cast<LPSTR>(pcm[i].data());hdr[i].dwBufferLength=sizeof(Block);
         if(waveOutPrepareHeader(dev,&hdr[i],sizeof(WAVEHDR))!=MMSYSERR_NOERROR)break;++prepared;}
     audioStatus=prepared==hdr.size()?1:-1;
+    EmergencyDrain drain;
+    const auto reset=[&]{return waveOutReset(dev)==MMSYSERR_NOERROR;};
     while(!stopping.load()&&audioStatus.load()==1){
-        // Discard queued hardware blocks on a known emergency. No driver I/O in Runtime::render.
-        if(runtime.input.emergency_pending()&&waveOutReset(dev)!=MMSYSERR_NOERROR){audioStatus=-1;break;}
-        bool queued=false;
+        // Service even when every header is queued. The request generation
+        // survives Runtime::render acknowledging it in the same iteration.
+        if(drain.service(runtime.input,reset)==DrainResult::Failed){audioStatus=-1;break;}
+        bool queued=false, retry=false;
         for(unsigned i=0;i<hdr.size();++i)if(!(hdr[i].dwFlags&WHDR_INQUEUE)){
             runtime.render(pcm[i].data(),pcm[i].size());
+            const auto result=drain.service(runtime.input,reset);
+            if(result==DrainResult::Failed){audioStatus=-1;break;}
+            if(result==DrainResult::Drained){retry=true;break;} // discard possibly stale PCM
             if(waveOutWrite(dev,&hdr[i],sizeof(WAVEHDR))!=MMSYSERR_NOERROR){audioStatus=-1;break;}queued=true;
         }
-        if(!queued)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if(!queued&&!retry)std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     waveOutReset(dev);for(unsigned i=0;i<prepared;++i)waveOutUnprepareHeader(dev,&hdr[i],sizeof(WAVEHDR));waveOutClose(dev);
 }

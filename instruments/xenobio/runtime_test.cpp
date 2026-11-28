@@ -17,7 +17,41 @@ static void ppm(const char* path,const Engine& e) {
         for(int x=1;x<=320;++x){auto c=row[x];f.put(char((c>>11)*255/31));f.put(char(((c>>5)&63)*255/63));f.put(char((c&31)*255/31));}}
     assert(f.good());
 }
+// Same drain primitive as the Windows audio worker, with a modeled device
+// queue. Inject exactly at the old loop-check/render race and after rendering.
+static void emergency_drain_regression() {
+    Runtime r; EmergencyDrain drain; PCM p{};
+    unsigned queued=0,resets=0;
+    auto reset=[&]{queued=0;++resets;return true;};
+    auto fill=[&]{tap(r,75,10);bool heard=false;
+        for(int i=0;i<100;++i){r.render(p.data(),p.size());heard|=!silent(p);}
+        assert(heard);queued=4;};
+    fill();
+    assert(drain.service(r.input,reset)==DrainResult::Unchanged);
+    r.input.emergency(); // after loop-entry check, before render
+    r.render(p.data(),p.size());
+    assert(!r.input.emergency_pending()&&silent(p)&&queued==4);
+    assert(drain.service(r.input,reset)==DrainResult::Drained&&queued==0&&resets==1);
+    assert(drain.service(r.input,reset)==DrainResult::Unchanged);
+    fill();
+    r.input.emergency(); // after render, before submission (discard stale block)
+    assert(drain.service(r.input,reset)==DrainResult::Drained&&queued==0&&resets==2);
+    r.render(p.data(),p.size());assert(silent(p));
+    fill();r.input.emergency(); // all four headers busy: no render needed to drain
+    assert(drain.service(r.input,[]{return false;})==DrainResult::Failed&&queued==4);
+    assert(drain.service(r.input,reset)==DrainResult::Drained&&queued==0&&resets==3);
+    r.render(p.data(),p.size());assert(silent(p));
+    fill();r.input.emergency();r.render(p.data(),p.size());
+    // A fresh generation arrives during the reset operation. It must not be
+    // marked drained merely because the earlier reset succeeded.
+    assert(drain.service(r.input,[&]{r.input.emergency();return reset();})==DrainResult::Drained);
+    assert(drain.service(r.input,reset)==DrainResult::Drained&&resets==5);
+    r.render(p.data(),p.size());assert(silent(p));
+    fill();assert(drain.service(r.input,reset)==DrainResult::Unchanged);
+    std::puts("PASS modeled device queue: late panic, stale block, full queue, reset failure, generation during reset, restart");
+}
 int main(int argc,char** argv) {
+    emergency_drain_regression();
     assert(argc==2);Runtime r;PCM p{},q{};Engine direct;direct.reset(2);direct.stop();
     r.render(p.data(),p.size());assert(silent(p)&&r.snapshot().panic);
     tap(r,120,10);direct.touch(120,10,true);direct.release();
