@@ -29,4 +29,21 @@ static void exchange_tests(){
   q.send(true,150,30);q.send(false,0,0);pump();audible();assert(last==0&&!e.view().held);
   std::cout<<"PASS: ordered short tap, double toggle, preset/strike, panic epoch, overflow release, disarm discard and cursor wrap; Exchange bytes "<<sizeof(Exchange)<<"\n";
 }
-int main(int argc,char** argv){exchange_tests();int peak=0;for(unsigned m=0;m<4;++m){View v;auto a=phrase(m,true,128,&v),b=phrase(m,true,32);assert(a==b);assert(a!=phrase(m,false,128));for(int x:a)peak=std::max(peak,std::abs(x));assert(peak<=12000);if(argc>1){std::string p=std::string(argv[1])+"/material-"+std::to_string(m);wav(p+".wav",a);ppm(p+".ppm",v);}}Engine e;int16_t a[128];e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);e.render(a,128);auto v=e.view();assert(v.level[0]>0&&v.level[3]==0&&v.level[4]==0&&v.level[5]==0);e.input(false,0,0);e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);for(int i=0;i<32;++i)e.render(a,128);assert(e.view().level[3]>0);assert(!e.view().held);e.input(false,0,0);e.input(true,300,210);e.render(a,128);for(auto x:a)assert(x==0);for(int i=0;i<20000;++i){e.input(false,0,0);e.input(true,i%320,i%184);e.render(a,128);for(auto x:a)assert(std::abs(int(x))<=12000);}std::cout<<"PASS: four 96000-sample phrases partition-identical; coupling ablation, lease, panic; 2560000 stress samples; phrase peak "<<peak<<"; engine bytes "<<sizeof(Engine)<<"\n";}
+static std::vector<int16_t> rake_phrase(unsigned mat,bool rake,unsigned block,View* frame=nullptr){
+  Engine e;e.input(true,int(mat*53+20),210);e.input(false,0,0);e.input(true,rake?180:50,232);e.input(false,0,0);
+  std::vector<int16_t> out(rate*4);
+  for(unsigned i=0;i<out.size();){const unsigned t=i%(rate*2), step=std::min({block,unsigned(out.size()-i),240u-i%240});
+    if(i%240==0){const int x=t<rate?20+int(t*280/rate):300-int((t-rate)*280/rate);e.input(t<rate*3/2,x,45+int(t/240)%80);}
+    e.render(out.data()+i,step);i+=step;if(frame&&i==rate/2)*frame=e.view();
+  }return out;
+}
+static void rake_tests(int argc,char** argv){
+  for(unsigned m=0;m<4;++m){View v;auto a=rake_phrase(m,true,128,&v),b=rake_phrase(m,true,17),c=rake_phrase(m,false,128);assert(a==b&&a!=c&&v.rake);for(auto x:a)assert(std::abs(int(x))<=12000);if(argc>1){const std::string p=std::string(argv[1])+"/rake-"+std::to_string(m);wav(p+".wav",a);ppm(p+".ppm",v);}}
+  Engine a,b;for(auto* e:{&a,&b}){e->input(true,180,232);e->input(false,0,0);e->input(true,235,210);e->input(false,0,0);e->input(true,20,40);}
+  int16_t x[480],y[480];a.input(true,280,40);a.render(x,480);b.render(y,480);assert(std::equal(x,x+480,y)); // no retrigger before sample cooldown
+  a.input(true,280,40);a.render(x,480);b.render(y,480);assert(!std::equal(x,x+480,y));
+  a.panic();a.release();a.render(x,480);for(auto v:x)assert(v==0);assert(!a.view().held);
+  Exchange q;q.publish(a.view());assert(q.read().rake);a.input(true,50,232);a.input(false,0,0);q.publish(a.view());assert(!q.read().rake);
+  std::cout<<"PASS: four rake phrases partition-identical; strike contrast, sample cooldown, panic and mode snapshot\n";
+}
+int main(int argc,char** argv){exchange_tests();rake_tests(argc,argv);int peak=0;for(unsigned m=0;m<4;++m){View v;auto a=phrase(m,true,128,&v),b=phrase(m,true,32);assert(a==b);assert(a!=phrase(m,false,128));for(int x:a)peak=std::max(peak,std::abs(x));assert(peak<=12000);if(argc>1){std::string p=std::string(argv[1])+"/material-"+std::to_string(m);wav(p+".wav",a);ppm(p+".ppm",v);}}Engine e;int16_t a[128];e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);e.render(a,128);auto v=e.view();assert(v.level[0]>0&&v.level[3]==0&&v.level[4]==0&&v.level[5]==0);e.input(false,0,0);e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);for(int i=0;i<32;++i)e.render(a,128);assert(e.view().level[3]>0);assert(!e.view().held);e.input(false,0,0);e.input(true,300,210);e.render(a,128);for(auto x:a)assert(x==0);for(int i=0;i<20000;++i){e.input(false,0,0);e.input(true,i%320,i%184);e.render(a,128);for(auto x:a)assert(std::abs(int(x))<=12000);}std::cout<<"PASS: four 96000-sample phrases partition-identical; coupling ablation, lease, panic; 2560000 stress samples; phrase peak "<<peak<<"; engine bytes "<<sizeof(Engine)<<"\n";}

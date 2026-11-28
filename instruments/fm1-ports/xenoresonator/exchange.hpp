@@ -37,8 +37,8 @@ struct Exchange {
     e.panic();e.release();alarm=panic.load(std::memory_order_acquire);
     last=write.load(std::memory_order_acquire);readpos.store(last,std::memory_order_release);
   }
-  void publish(const View& v){uint32_t b=0;for(unsigned i=0;i<6;++i)b|=(v.level[i]>>4)<<(i*4);b|=(v.material<<24)|(uint32_t(v.coupled)<<26)|(uint32_t(v.held)<<27);meter.store(b,std::memory_order_release);}
-  View read(){auto b=meter.load(std::memory_order_acquire);View v;for(unsigned i=0;i<6;++i)v.level[i]=((b>>(i*4))&15)*17;v.material=(b>>24)&3;v.coupled=(b>>26)&1;v.held=(b>>27)&1;auto q=input.load(std::memory_order_acquire);v.x=q&511;v.y=(q>>9)&255;return v;}
+  void publish(const View& v){uint32_t b=0;for(unsigned i=0;i<6;++i)b|=(v.level[i]>>4)<<(i*4);b|=(v.material<<24)|(uint32_t(v.coupled)<<26)|(uint32_t(v.held)<<27)|(uint32_t(v.rake)<<28);meter.store(b,std::memory_order_release);}
+  View read(){auto b=meter.load(std::memory_order_acquire);View v;for(unsigned i=0;i<6;++i)v.level[i]=((b>>(i*4))&15)*17;v.material=(b>>24)&3;v.coupled=(b>>26)&1;v.held=(b>>27)&1;v.rake=(b>>28)&1;auto q=input.load(std::memory_order_acquire);v.x=q&511;v.y=(q>>9)&255;return v;}
 };
 static_assert(std::atomic<uint32_t>::is_always_lock_free,"32-bit snapshot atomics required");
 }
