@@ -62,6 +62,19 @@ class FetchTests(unittest.TestCase):
                 self.assertEqual(list(Path(tmp).iterdir()), [])
                 self.assertFalse(any(p.endswith('/zip') for p in self.requests))
 
+    def test_six_application_collection(self):
+        data = b'archive 7'
+        self.pins['apps'].append(dict(run=107, artifact=7, sha256=sha(data)))
+        self.responses['runs/107'] = dict(id=107, head_sha=self.head,
+            head_repository={'full_name': REPO}, status='completed', conclusion='success')
+        self.responses['artifacts/7'] = dict(id=7, expired=False, digest='sha256:'+sha(data),
+            workflow_run=dict(id=107, head_sha=self.head))
+        self.responses['artifacts/7/zip'] = data
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            acquire(self.pins, root, self.request)
+            self.assertEqual(len(list(root.iterdir())), 7)
+
     def test_corrupted_download(self):
         self.responses['artifacts/1/zip'] = b'wrong'
         with tempfile.TemporaryDirectory() as tmp:

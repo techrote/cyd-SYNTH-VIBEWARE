@@ -1,15 +1,16 @@
-name: Integration five-profile board batch
+name: Integration seven-profile board batch
 on:
   pull_request:
     paths:
       - 'integration/board_batch.py'
       - 'integration/board_batch_test.py'
+      - 'integration/board_profiles.py'
       - '.github/workflows/integration-board-batch.yml'
       - 'instruments/**'
 permissions:
   contents: read
 jobs:
-  five-profile-compile-only:
+  seven-profile-compile-only:
     if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'integration/')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -23,10 +24,10 @@ jobs:
           python-version: '3.12'
       - name: Test board batch host contracts
         working-directory: integration
-        run: python -m unittest -v board_batch_test
+        run: python -m unittest -v board_batch_test collection_test collection_fetch_test
       - name: Install pinned compile-only tools
         run: python -m pip install platformio==6.1.18 intelhex==2.3.0
-      - name: Compile five standalone CYD profiles from exact source
+      - name: Compile seven standalone CYD profiles from exact source
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -36,13 +37,13 @@ jobs:
           python integration/board_batch.py --head "$EXPECTED_HEAD" --tree "$tree" --build board-evidence
           test -s board-evidence/COMPLETE.txt
           printf 'commit=%s\ntree=%s\nphysical=HOLD\n' "$EXPECTED_HEAD" "$tree" > board-evidence/batch-identity.txt
-          for profile in cyd-phasespace cyd-chronogrid cyd-xenobio cyd-port-xeno cyd-port-chrono; do
+          for profile in cyd-phasespace cyd-chronogrid cyd-xenobio cyd-port-xeno cyd-port-chrono cyd-port-ecophon cyd-port-ecophon-timer; do
             (cd "board-evidence/$profile" && test -s firmware.map && sha256sum -c SHA256SUMS)
           done
           (cd board-evidence && find . -type f ! -path './SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
       - name: Retain compile-only receipts (not firmware)
         uses: actions/upload-artifact@v4
         with:
-          name: integration-five-profile-board-evidence-no-firmware
+          name: integration-seven-profile-board-evidence-no-firmware
           path: board-evidence/
           if-no-files-found: error

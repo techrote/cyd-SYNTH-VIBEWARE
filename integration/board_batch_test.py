@@ -26,9 +26,23 @@ class BoardBatch(unittest.TestCase):
             git('init', '-q')
             for directory, profile, platform in PROFILES:
                 target = repo / directory / 'platformio.ini'
-                target.parent.mkdir(parents=True)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if profile == 'cyd-port-ecophon-timer':
+                    with target.open('a', encoding='utf-8') as f:
+                        f.write('\n[env:cyd-port-ecophon-timer]\nextends = env:cyd-port-ecophon\nbuild_flags = ${env:cyd-port-ecophon.build_flags} -DECO_TIMER_DAC\n')
+                    continue
                 target.write_text('[platformio]\ndefault_envs = ' + profile + '\n[env:' + profile + ']\nplatform = espressif32 @ ' + platform + '\nboard = esp32dev\nframework = arduino\nboard_build.partitions = huge_app.csv\n', encoding='utf-8')
-            self.assertEqual(len(plan(repo)), 5)
+            self.assertEqual(len(plan(repo)), 7)
+            valid_ini = target.read_text()
+            for bad in (valid_ini + 'board = wrong-board\n',
+                        valid_ini.replace('extends = env:cyd-port-ecophon', 'extends = env:unknown'),
+                        valid_ini.replace(' -DECO_TIMER_DAC', ''),
+                        valid_ini.replace('huge_app.csv', 'default.csv'),
+                        valid_ini.replace('default_envs = cyd-port-ecophon', 'default_envs = cyd-port-ecophon-timer')):
+                target.write_text(bad)
+                with self.assertRaises(ValueError):
+                    plan(repo)
+            target.write_text(valid_ini)
             git('add', '.')
             git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'fixture')
             head, tree = git('rev-parse', 'HEAD'), git('rev-parse', 'HEAD^{tree}')
@@ -39,6 +53,7 @@ class BoardBatch(unittest.TestCase):
             command = [sys.executable, str(script), '--repo', str(repo), '--head', head, '--tree']
             valid = subprocess.run(command + [tree], capture_output=True, text=True, check=True)
             self.assertIn('cyd-port-chrono', valid.stdout)
+            self.assertIn('cyd-port-ecophon-timer', valid.stdout)
             self.assertIn('HOLD', valid.stdout)
             invalid = subprocess.run(command + ['0' * 40], capture_output=True, text=True)
             self.assertNotEqual(invalid.returncode, 0)

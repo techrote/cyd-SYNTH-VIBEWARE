@@ -1,6 +1,5 @@
 """Compile-only standalone CYD batch. Python 3.12; no device or upload actions."""
 import argparse
-import configparser
 import hashlib
 import importlib.metadata
 import json
@@ -13,32 +12,11 @@ import sys
 import tarfile
 import tempfile
 
-PROFILES = (
-    ('instruments/phasespace/firmware', 'cyd-phasespace', '6.10.0'),
-    ('instruments/chronogrid/firmware', 'cyd-chronogrid', '6.10.0'),
-    ('instruments/xenobio/firmware', 'cyd-xenobio', '6.10.0'),
-    ('instruments/fm1-ports/xenoresonator', 'cyd-port-xeno', '7.1.3'),
-    ('instruments/fm1-ports/chronomorph', 'cyd-port-chrono', '7.1.3'),
-)
+from board_profiles import PROFILES, plan
 
 
 def git(repo, *args):
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
-
-
-def plan(source):
-    result = []
-    for directory, profile, platform in PROFILES:
-        config = configparser.ConfigParser(interpolation=None)
-        with (source / directory / 'platformio.ini').open(encoding='utf-8') as f:
-            config.read_file(f)
-        section = config['env:' + profile]
-        expected = {'platform': 'espressif32 @ ' + platform, 'board': 'esp32dev',
-                    'framework': 'arduino', 'board_build.partitions': 'huge_app.csv'}
-        if config['platformio']['default_envs'] != profile or any(section.get(k) != v for k, v in expected.items()):
-            raise ValueError('unexpected profile configuration: ' + profile)
-        result.append(dict(directory=directory, profile=profile, **expected))
-    return result
 
 
 def sizes(log):
@@ -97,7 +75,7 @@ def main():
     parser.add_argument('--repo', type=Path, default=Path.cwd())
     parser.add_argument('--head', required=True)
     parser.add_argument('--tree', required=True)
-    parser.add_argument('--build', type=Path, metavar='NEW_EVIDENCE_DIRECTORY', help='explicitly compile all five; omit for source/profile preflight only')
+    parser.add_argument('--build', type=Path, metavar='NEW_EVIDENCE_DIRECTORY', help='explicitly compile all seven; omit for source/profile preflight only')
     args = parser.parse_args()
     if any(not re.fullmatch('[0-9a-f]{40}', s) for s in (args.head, args.tree)):
         parser.error('exact full lowercase commit and tree required')
@@ -118,7 +96,7 @@ def main():
             out = args.build.resolve()
             out.mkdir(parents=True, exist_ok=False)
             build(source, scratch, out, profiles, args.head, args.tree)
-            (out / 'COMPLETE.txt').write_text('Five compile/link profiles completed; physical HOLD. No installable images included.\n', encoding='ascii')
+            (out / 'COMPLETE.txt').write_text('Seven compile/link profiles completed; physical HOLD. No installable images included.\n', encoding='ascii')
 
 
 if __name__ == '__main__':

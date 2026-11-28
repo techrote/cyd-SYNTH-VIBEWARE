@@ -22,8 +22,8 @@ def acquire(pins, directory, request=api):
     require(re.fullmatch(r'[0-9a-f]{40}', head), 'invalid pinned head')
     require(re.fullmatch(r'[0-9a-f]{40}', pins['tree']), 'invalid pinned tree')
     entries = [*pins['apps'], pins['board']]
-    require(len(pins['apps']) == 5 and len({p['artifact'] for p in entries}) == 6,
-            'expected five applications and one unique board archive')
+    require(len(pins['apps']) in (5, 6) and len({p['artifact'] for p in entries}) == len(entries),
+            'expected five or six applications and one unique board archive')
     for p in entries:
         require(all(type(p[k]) is int and p[k] > 0 for k in ('run', 'artifact')),
                 'invalid run/artifact id')
