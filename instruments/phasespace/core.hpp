@@ -13,6 +13,8 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free,"32-bit atomics require
 struct Control {
     unsigned x=160,y=104,preset=0,seq=0,loop=0; // loop is UI-only; not serialized
     bool alt=false,quant=false,gate=false,panic=false;
+    unsigned loopRate=1; // UI-only: slow, normal, fast
+    bool loopReverse=false;
     uint32_t pack() const {
         return std::min(x,319u)|(std::min(y,207u)<<9)|(std::min(preset,5u)<<17)|
             (uint32_t(alt)<<20)|(uint32_t(quant)<<21)|(uint32_t(gate)<<22)|
@@ -32,10 +34,15 @@ class Surface {
     unsigned count_=0,index_=0;
     uint32_t lastTick_=0;
     bool down_=false,playing_=false,clockArmed_=false;
+    bool adjusting_=false,adjustMoved_=false,reverseCycle_=false;
+    int adjustX_=0,adjustY_=0;
     void append() {
         if(count_<gesture_.size())gesture_[count_++]={uint16_t(c.x),uint16_t(c.y)};
     }
-    void clearLoop() {c.loop=0;count_=index_=0;clockArmed_=false;c.gate=false;}
+    void clearLoop() {
+        c.loop=0;count_=index_=0;clockArmed_=false;c.gate=false;
+        adjusting_=adjustMoved_=reverseCycle_=false;c.loopRate=1;c.loopReverse=false;
+    }
 public:
     Control c{};
     // R arms one field gesture; release loops it with one silent control tick.
@@ -52,8 +59,21 @@ public:
             else if(x<224)c.quant=!c.quant;
             else if(x<256)c.alt=!c.alt;
             else if(x<288){
-                if(c.loop)clearLoop();else{c.loop=1;c.gate=false;}
+                if(c.loop==3){adjusting_=true;adjustMoved_=false;adjustX_=x;adjustY_=y;}
+                else if(c.loop)clearLoop();else{c.loop=1;c.gate=false;}
             } else {clearLoop();c.panic=true;}
+        }
+        if(adjusting_) {
+            if(down) {
+                if(std::abs(x-adjustX_)>=12||std::abs(y-adjustY_)>=12)adjustMoved_=true;
+                if(adjustMoved_) {
+                    c.loopRate=y<80?2u:(y<160?1u:0u);
+                    if(x<120)c.loopReverse=true;else if(x>200)c.loopReverse=false;
+                }
+            } else {
+                if(!adjustMoved_)clearLoop();
+                adjusting_=false;
+            }
         }
         if(down&&playing_) {
             c.x=unsigned(x);c.y=unsigned(std::min(y,207));
@@ -74,12 +94,15 @@ public:
         if(c.loop<2)return;
         if(!clockArmed_){lastTick_=now;clockArmed_=true;return;}
         const uint32_t elapsed=now-lastTick_;
-        if(elapsed<32)return;
-        lastTick_=elapsed>=64?now:lastTick_+32;
+        const uint32_t period=c.loop==3?(c.loopRate==0?64u:(c.loopRate==2?16u:32u)):32u;
+        if(elapsed<period)return;
+        lastTick_=elapsed>=2*period?now:lastTick_+period;
         if(c.loop==2){if(playing_)append();}
         else if(index_==count_){c.gate=false;index_=0;}
         else {
-            const auto p=gesture_[index_++];c.x=p.x;c.y=p.y;c.gate=!c.panic;
+            if(index_==0)reverseCycle_=c.loopReverse;
+            const auto p=gesture_[reverseCycle_?count_-1-index_:index_];++index_;
+            c.x=p.x;c.y=p.y;c.gate=!c.panic;
         }
         ++c.seq;
     }
@@ -208,8 +231,23 @@ public:
             for(unsigned i=0;i<count_;++i){
                 const auto p=history_[(end_+128-count_+i)&127u];
                 if(p.x>=width||p.y>=field)continue;
+                const auto ink=dim(color,1+i*7/std::max(1u,count_-1));
+                // Connect only nearby consecutive actual-state samples; no invented long chords.
+                if(i>0){
+                    const auto q=history_[(end_+128-count_+i-1)&127u];
+                    if(q.x<width&&q.y<field){
+                        const int dx=int(p.x)-int(q.x),dy=int(p.y)-int(q.y);
+                        if(std::abs(dx)<=40&&std::abs(dy)<=40&&int(y)>=std::min(int(p.y),int(q.y))&&int(y)<=std::max(int(p.y),int(q.y))){
+                            if(dy==0){
+                                for(unsigned x=std::min(p.x,q.x);x<=std::max(p.x,q.x);++x)dst[x]=ink;
+                            }else{
+                                const int x=int(q.x)+dx*(int(y)-int(q.y))/dy;
+                                dst[x]=ink;
+                            }
+                        }
+                    }
+                }
                 if(std::abs(int(y)-int(p.y))<=1){
-                    const auto ink=dim(color,1+i*7/std::max(1u,count_-1));
                     for(int dx=-1;dx<=1;++dx){
                         int x=int(p.x)+dx;if(x>=0&&x<int(width))dst[x]=ink;
                     }
@@ -225,6 +263,12 @@ public:
               {14,16,16,30,17,17,14},{14,17,17,17,21,18,13},
               {17,27,21,21,17,17,17},{30,17,17,30,20,18,17},{17,17,10,4,10,17,17}};
             constexpr unsigned start[]={0,32,64,96,128,160,192,224,256,288};
+            if(c.loop==3&&y>=211&&y<=214){
+                for(unsigned i=0;i<std::min(c.loopRate,2u)+1;++i){
+                    unsigned x=c.loopReverse?281-7*i:260+7*i;
+                    for(unsigned k=0;k<4;++k)dst[x+k]=0xffff;
+                }
+            }
             if(y>=217&&y<231)for(unsigned b=0;b<10;++b){
                 unsigned bits=glyph[b][(y-217)/2];
                 for(unsigned k=0;k<5;++k)if(bits&(16u>>k)){

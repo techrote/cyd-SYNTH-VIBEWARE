@@ -63,8 +63,11 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
             std::array<int16_t,block> b{};
             for(unsigned i=0;i<6;++i)smokeEngine.render(surface.c.pack(),b.data(),b.size(),&points);
         }else {surface.tick(GetTickCount());surface.heartbeat();}
-        publish();trace.drain(points);
-        InvalidateRect(h,nullptr,FALSE);UpdateWindow(h);
+        publish();
+        if(smoke||ticks%3==0){
+            trace.drain(points);
+            InvalidateRect(h,nullptr,FALSE);UpdateWindow(h);
+        }
         if(ticks%15==0){
             char title[160];std::snprintf(title,sizeof(title),"PHASESPACE | %s | %s | %s",
                 patches[surface.c.preset].name,surface.c.alt?"alternate":"coupling",
@@ -95,7 +98,7 @@ int main(int argc,char** argv){
     if(!RegisterClassA(&wc))return 1;
     HWND h=CreateWindowA(wc.lpszClassName,"PHASESPACE",WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,
         660,520,nullptr,nullptr,wc.hInstance,nullptr);
-    if(!h)return 1;ShowWindow(h,SW_SHOW);if(!SetTimer(h,1,33,nullptr))return 1;
+    if(!h)return 1;ShowWindow(h,SW_SHOW);if(!SetTimer(h,1,smoke?33:12,nullptr))return 1;
     std::thread worker;if(!smoke)worker=std::thread(audio);
     MSG msg{};int ret=0;while((ret=GetMessageA(&msg,nullptr,0,0))>0){TranslateMessage(&msg);DispatchMessageA(&msg);}
     stop=true;if(worker.joinable())worker.join();return ret<0?1:int(msg.wParam);

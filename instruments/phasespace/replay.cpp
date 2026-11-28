@@ -95,6 +95,58 @@ int main(int argc,char** argv){
     for(unsigned i=0;i<64;++i){cap.tick(3232+i*32);require(cap.c.gate&&cap.c.x==i,"bounded wrapped capture");}
     cap.tick(3232+64*32);require(!cap.c.gate,"capacity gap");
     cap.touch(true,305,235);require(cap.c.panic&&cap.c.loop==0&&!cap.c.gate,"toolbar panic stops loop");
+    // Playback direction changes at cycle boundary, speed immediately; no catch-up bursts.
+    Surface perf;perf.touch(true,270,235);perf.touch(false,270,235);
+    perf.touch(true,20,50);perf.tick(0);perf.touch(true,100,80);perf.tick(32);
+    perf.touch(true,240,10);perf.tick(64);perf.touch(false,240,10);perf.tick(96);
+    perf.tick(128);require(perf.c.x==20,"normal first point");
+    perf.touch(true,270,235);perf.touch(true,60,30);perf.touch(false,60,30);
+    require(perf.c.loop==3&&perf.c.loopRate==2&&perf.c.loopReverse,"fast reverse selected");
+    perf.tick(143);require(perf.c.x==20,"fast interval not early");
+    perf.tick(144);require(perf.c.x==100,"current cycle stays forward");
+    perf.tick(160);require(perf.c.x==240,"current cycle finishes forward");
+    perf.tick(176);require(!perf.c.gate,"fast gap");
+    perf.tick(192);require(perf.c.gate&&perf.c.x==240,"reverse first point");
+    perf.tick(208);require(perf.c.x==100,"reverse middle point");
+    perf.touch(true,270,235);perf.touch(true,250,215);perf.touch(false,250,215);
+    require(perf.c.loopRate==0&&!perf.c.loopReverse,"slow forward selected");
+    perf.tick(271);require(perf.c.x==100,"slow interval not early");
+    perf.tick(272);require(perf.c.x==20,"reverse cycle preserved");
+    perf.tick(1000);require(!perf.c.gate,"late tick advances only once");
+    perf.tick(1064);require(perf.c.x==20&&perf.c.gate,"forward resumes");
+    perf.touch(true,270,235);perf.touch(false,270,235);
+    require(perf.c.loop==0&&!perf.c.gate,"R tap stops");
+    // Renderer joins nearby samples, refuses long chords and remains clipped.
+    Points seg;Trace connected;Control visual;std::array<uint16_t,width> row{};
+    seg.push({10,20});seg.push({30,30});connected.drain(seg);
+    connected.row(visual,25,row.data());require(row[20]==patches[0].color,"nearby trace connection");
+    seg.push({300,30});connected.drain(seg);connected.row(visual,30,row.data());
+    require(row[150]==0x0842,"no long invented chord");
+    // Actual musical witness: identical captured path, normal/fast-reverse/slow-forward.
+    if(!dir.empty()){
+        Surface musical;Engine synth;Points plot;Trace view;
+        std::vector<int16_t> performance;std::array<int16_t,384> slice{};
+        uint32_t ms=0;
+        auto tick=[&](){
+            musical.tick(ms);synth.render(musical.c.pack(),slice.data(),slice.size(),&plot);
+            view.drain(plot);performance.insert(performance.end(),slice.begin(),slice.end());ms+=16;
+        };
+        musical.c.quant=true;musical.c.preset=5;
+        musical.touch(true,270,235);musical.touch(false,270,235);
+        for(unsigned i=0;i<48;++i){
+            int x=25+int(i*265/47),y=104+int(76*std::sin(tau*float(i)/47));
+            musical.touch(true,x,y);tick();
+        }
+        musical.touch(false,0,0);
+        for(unsigned i=0;i<100;++i){tick();if(i==48)ppm(dir+"/loop-normal.ppm",view,musical.c);}
+        musical.touch(true,270,235);musical.touch(true,60,30);musical.touch(false,60,30);
+        for(unsigned i=0;i<100;++i){tick();if(i==53)ppm(dir+"/loop-fast-reverse.ppm",view,musical.c);}
+        musical.touch(true,270,235);musical.touch(true,250,215);musical.touch(false,250,215);
+        for(unsigned i=0;i<200;++i){tick();if(i==92)ppm(dir+"/loop-slow-forward.ppm",view,musical.c);}
+        musical.cancel();for(unsigned i=0;i<8;++i)tick();
+        require(std::all_of(performance.end()-3072,performance.end(),[](int16_t v){return v==0;}),"performance panic tail");
+        wav(dir+"/gesture-tempo-direction.wav",performance);
+    }
     Points q;for(unsigned i=0;i<256;++i)require(q.push({uint16_t(i),0}),"queue capacity");
     require(!q.push({0,0}),"queue full drop");Point p;
     for(unsigned i=0;i<256;++i)require(q.pop(p)&&p.x==i,"FIFO");
