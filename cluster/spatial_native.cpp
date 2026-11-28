@@ -74,15 +74,15 @@ static void replay(){
     for(std::size_t x=0;x<row.size();++x)check(row[x]==sf::color(a.pixels()[23*32+x/10]),"row");
     std::cout<<"PASS spatial checks="<<checks+325<<" digest="<<sf::digest(a.pixels())<<'\n';
 }
-static void sender(Udp& udp,bool faults){
+static void sender(Udp& udp,bool faults,bool stream){
     sf::ActiveField f;sf::Packet prior{};
-    for(unsigned i=1;i<=80;++i){
+    for(unsigned i=1;i<=(stream?2400u:80u);++i){
         check(f.advance(),"advance");auto p=sf::encode(91,f);
         if(!faults||i<20||i>50){
             check(udp.send_bytes(p.data(),p.size()),"send");
             if(faults&&i%5==0){udp.send_bytes(p.data(),p.size());if(i>1)udp.send_bytes(prior.data(),prior.size());}
         }
-        prior=p;std::this_thread::sleep_for(15ms);
+        prior=p;std::this_thread::sleep_for(stream?50ms:15ms);
     }
 }
 static void viewer(Udp& udp,bool faults,const char* path){
@@ -122,15 +122,16 @@ static void viewer(Udp& udp,bool faults,const char* path){
 }
 int main(int argc,char** argv){
     if(argc==1){replay();return 0;}
-    if(argc!=6)fail("usage: spatial send|receive own-port peer-port clean|faults output.ppm");
+    if(argc!=6)fail("usage: spatial send|receive own-port peer-port clean|faults|stream output.ppm");
 #ifdef _WIN32
     WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup");
 #endif
     auto port=[](const char* s){char* end=nullptr;auto p=std::strtoul(s,&end,10);if(!*s||*end||p<1024||p>65535)fail("port");return unsigned(p);};
     const bool faults=std::strcmp(argv[4],"faults")==0;
-    check(faults||std::strcmp(argv[4],"clean")==0,"mode");
+    const bool stream=std::strcmp(argv[4],"stream")==0;
+    check(faults||std::strcmp(argv[4],"clean")==0||(stream&&std::strcmp(argv[1],"send")==0),"mode");
     {Udp udp(port(argv[2]),port(argv[3]));
-    if(std::strcmp(argv[1],"send")==0)sender(udp,faults);
+    if(std::strcmp(argv[1],"send")==0)sender(udp,faults,stream);
     else if(std::strcmp(argv[1],"receive")==0)viewer(udp,faults,argv[5]);
     else fail("role");}
 #ifdef _WIN32

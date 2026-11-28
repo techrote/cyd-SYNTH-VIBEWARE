@@ -244,3 +244,23 @@ not interval statistics. Frame cadence counts completed frames; accepted bytes
 are application payload only. Serial boundary skew remains; no interval p95/p99,
 RF loss, one-way age, audio, or actual speedup claim. Native matched-state tests
 remain distinct. Synthetic parser tests: `python spatial_capture_test.py`.
+
+### M14 — reaction-diffusion desktop audition
+
+Windows actual-core visual-only viewer: run `cluster_reaction_view.exe` for
+standalone, or run `cluster_reaction_view.exe --udp 42000 42001` and then
+`cluster_reaction.exe send 42001 42000 stream unused.ppm` in another terminal.
+The worker sends 2400 snapshots at a requested 50 ms interval (about two
+minutes); Ctrl+C stops it. Both endpoints are localhost only, fixed test epoch
+91; restart both to reset sequence. The dummy output path is unused by send.
+Hold the left mouse button to select local, release to resume remote, R to
+toggle remote, Esc to exit. Loss triggers local computation immediately;
+a 300 ms presentation-only blend on autonomous source changes avoids a
+one-frame jump, including reversals, but is not simulation phase continuity.
+Explicit local overrides are immediate. No audio or device radio in this
+viewer. The embedded profiles and M13 measurement schema are unchanged.
+
+The previous M13 Windows workflow omitted the spatial capture scripts despite
+running their source tests; the new archive includes and exercises both. New
+extracted GDI smoke and actual separate-process blackout/recovery smoke are
+required, along with the portable handoff CTest, ASan/UBSan and PE checks.
