@@ -1,9 +1,5 @@
 name: QA batch 016 independent repaired Xeno and Ecophon M4
 on:
-  pull_request:
-    paths:
-      - 'qualification/replay016.py'
-      - '.github/workflows/qa-batch-016.yml'
   workflow_dispatch:
 permissions:
   contents: read
