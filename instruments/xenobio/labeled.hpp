@@ -35,4 +35,14 @@ inline void labeled_row(const Engine& e, int y, uint16_t* out) {
     text_row(y, 225, 240, 280, "RESET", out);
     text_row(y, 225, 280, 320, "PANIC", out);
 }
+// Target-only arming status. Preserve the original scene header while armed,
+// and every ecology/footer pixel in all states.
+inline void target_status_row(const Engine& e, bool armed, bool fault, int y, uint16_t* out) {
+    if (y < 0 || y >= 240) return;
+    labeled_row(e,y,out);
+    if ((!armed || fault) && y < 20) {
+        std::fill_n(out,320,uint16_t(0));
+        text_row(y,5,0,320,fault ? "AUDIO FAULT" : "HOLD BOOT THEN RELEASE",out);
+    }
+}
 }

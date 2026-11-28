@@ -2,6 +2,7 @@
 // 7b1b37e and in-repo CHRONOGRID c0a866a; no external app code adopted.
 #include "../../runtime.hpp"
 #include "../../target_input.hpp"
+#include "../../boot_arm.hpp"
 #include "../../labeled.hpp"
 #include <Arduino.h>
 #include <SPI.h>
@@ -29,11 +30,13 @@ SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(33);
 Runtime runtime;
 TargetInput gate;
+BootArm bootArm;
 std::atomic<bool> audioFault{false};
 bool lcdReady=false, audioStarted=false;
 unsigned row=240;
 uint32_t touchAt=0, frameAt=0;
 Engine frame;
+bool frameArmed=false, frameFault=false;
 std::array<uint16_t,320> pixels{};
 std::array<lgfx::rgb565_t,320*strip> transfer{};
 
@@ -74,12 +77,13 @@ bool enableAudio() {
 }
 void presentStrip(uint32_t now) {
     if(row==240 && uint32_t(now-frameAt)>=50) {
-        frame=runtime.snapshot(); row=0; frameAt=now;
+        frame=runtime.snapshot(); frameArmed=gate.armed();
+        frameFault=audioFault.load(std::memory_order_acquire); row=0; frameAt=now;
     }
     if(row==240) return;
     const unsigned count=std::min(strip,240-row);
     for(unsigned dy=0;dy<count;++dy) {
-        labeled_row(frame,int(row+dy),pixels.data());
+        target_status_row(frame,frameArmed,frameFault,int(row+dy),pixels.data());
         for(unsigned x=0;x<320;++x) transfer[dy*320+x]=pixels[x];
     }
     lcd.pushImage(0,int(row),320,int(count),transfer.data());
@@ -98,21 +102,28 @@ void setup() {
         touchSpi.begin(25,39,32,33); touch.begin(touchSpi); touch.setRotation(0);
         lcd.fillScreen(uint16_t(0)); digitalWrite(21,HIGH);
     }
-    Serial.println("XENOBIO engineering candidate, physical HOLD. a=arm, m=mute, BOOT=disarm.");
+    Serial.println("XENOBIO engineering candidate, physical HOLD. Hold BOOT 800ms then release to arm; BOOT disarms. a=arm, m=mute.");
 }
 void loop() {
-    if(Serial.available()) {
-        int cmd=Serial.read();
-        if(cmd=='m') gate.disarm(runtime.input);
-        if(cmd=='a' && lcdReady && digitalRead(0)==HIGH &&
-           !audioFault.load(std::memory_order_acquire)) {
+    uint32_t now=millis();
+    const auto action=bootArm.poll(now,digitalRead(0)==LOW,gate.armed(),
+        lcdReady && !audioFault.load(std::memory_order_acquire));
+    if(action==BootAction::Disarm) gate.disarm(runtime.input);
+    auto arm=[&]{
+        if(lcdReady && digitalRead(0)==HIGH && !audioFault.load(std::memory_order_acquire)) {
             if(enableAudio()) gate.arm(runtime.input);
             else audioFault.store(true,std::memory_order_release);
         }
+    };
+    if(action==BootAction::Arm) arm();
+    if(Serial.available()) {
+        int cmd=Serial.read();
+        if(cmd=='m') { bootArm.reset(); gate.disarm(runtime.input); }
+        if(cmd=='a') { bootArm.reset(); arm(); }
     }
     if(digitalRead(0)==LOW || audioFault.load(std::memory_order_acquire))
         gate.disarm(runtime.input);
-    uint32_t now=millis();
+    now=millis();
     if(lcdReady && uint32_t(now-touchAt)>=12) {
         auto p=touch.getPoint();
         touchAt=millis();
