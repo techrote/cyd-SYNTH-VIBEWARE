@@ -1,0 +1,177 @@
+name: TOUCH PHOSPHOR desktop
+on:
+  pull_request:
+    paths:
+      - 'instruments/phosphor/**'
+      - '.github/workflows/touch-phosphor.yml'
+permissions:
+  contents: read
+concurrency:
+  group: touch-phosphor-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: github.event.pull_request.head.ref == 'touch/phosphor-001'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+          $pin = 'b7ad6410eca359603195634059cb2e9b2cabc4ec'
+          $blob = '0cc9887b6325cf79b414d5ef026c4c20946bfbf8'
+          git fetch --no-tags --depth=1 origin $pin
+          if ($LASTEXITCODE -ne 0) { throw "Cannot fetch P14 source" }
+          $archive = Join-Path $env:RUNNER_TEMP 'phosphor-p14.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'phosphor P14 source'
+          git archive --format=zip "--output=$archive" $pin platform/dac-lifecycle/clock_sink.hpp
+          if ($LASTEXITCODE -ne 0) { throw "Cannot export P14 source" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $header = Join-Path $extract 'platform/dac-lifecycle/clock_sink.hpp'
+          $actual = git hash-object --no-filters $header
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $blob) { throw "Wrong P14 source blob" }
+          Copy-Item -LiteralPath $header -Destination 'owner package/clock_sink.hpp'
+          @($pin, $blob, 'platform/dac-lifecycle/clock_sink.hpp') | Set-Content -Encoding ascii 'owner package/P14-SOURCE.txt'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2 diffutils
+      - name: Build and exercise exact source
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          command -v diff
+          stage="$PWD/owner package"
+          cd instruments/phosphor
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "$stage/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread split_test.cpp -o "$stage/split-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror desktop_test.cpp -o "$stage/desktop-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I/ucrt64/include/SDL2 desktop.cpp -o "$stage/PHOSPHOR.exe" -lSDL2 -static-libgcc -static-libstdc++
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror board_test.cpp -o "$stage/board-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$stage" audio_owner_test.cpp -o "$stage/audio-owner-test.exe" -static
+          "$stage/desktop-test.exe"
+          "$stage/board-test.exe"
+          "$stage/audio-owner-test.exe"
+          cp core.hpp split.hpp replay.cpp split_test.cpp desktop_session.hpp desktop_test.cpp desktop.cpp board_session.hpp board_test.cpp audio_owner.hpp audio_owner_test.cpp README.md M2.md M3.md M4.md M5.md M5R.md platformio.ini "$stage/"
+          mkdir -p "$stage/target"
+          cp target/main.cpp "$stage/target/"
+          g++ --version > "$stage/TOOLCHAIN.txt"
+          pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2 >> "$stage/TOOLCHAIN.txt"
+          cd "$stage"
+          ./replay.exe media
+          ./split-test.exe
+          mkdir -p notices
+          queue=(PHOSPHOR.exe board-test.exe audio-owner-test.exe)
+          : > IMPORTS.txt
+          : > notices/PACKAGES.txt
+          for ((i=0;i<${#queue[@]};i++)); do
+            obj="${queue[i]}"
+            printf '%s\n' "$obj" >> IMPORTS.txt
+            objdump -p "$obj" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' > imports.tmp
+            cat imports.tmp >> IMPORTS.txt
+            while IFS= read -r dll; do
+              path=$(find /ucrt64/bin -maxdepth 1 -iname "$dll" -print -quit)
+              if [[ -n "$path" && ! -f "$dll" ]]; then
+                cp "$path" "$dll"
+                queue+=("$dll")
+                pkg=$(pacman -Qoq "$path")
+                pacman -Q "$pkg" >> notices/PACKAGES.txt
+                mkdir -p "notices/$pkg"
+                count=0
+                while IFS= read -r license; do
+                  if [[ -f "$license" ]]; then cp "$license" "notices/$pkg/"; count=$((count+1)); fi
+                done < <(pacman -Qlq "$pkg" | grep '/share/licenses/' || true)
+                test "$count" -gt 0
+              fi
+            done < imports.tmp
+          done
+          rm imports.tmp
+          test -f SDL2.dll
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Archive and extract with spaces
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath "PHOSPHOR Windows.zip"
+          Expand-Archive -Path "PHOSPHOR Windows.zip" -DestinationPath "extracted owner package"
+      - name: Verify extracted media and source manifest
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "extracted owner package"
+          sha256sum -c SHA256SUMS.txt
+          ./desktop-test.exe
+          ./split-test.exe
+          ./board-test.exe
+          ./audio-owner-test.exe
+          ./replay.exe "reproduced media"
+          diff -qr media "reproduced media"
+      - name: Extracted graphical smoke without compiler runtime PATH
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Set-Location "extracted owner package"
+          & ".\board-test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted board fixture failed without compiler PATH" }
+          & ".\audio-owner-test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted audio owner fixture failed without compiler PATH" }
+          & ".\PHOSPHOR.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { throw "Graphical smoke failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phosphor-windows-owner-candidate
+          path: PHOSPHOR Windows.zip
+          if-no-files-found: error
+  target:
+    if: github.event.pull_request.head.ref == 'touch/phosphor-001'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/phosphor
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native board session and compile-only CYD profile
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          cp platformio.ini target-receipts/
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror board_test.cpp -o board-test
+          ./board-test | tee target-receipts/native.log
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all board_test.cpp -o board-san
+          ./board-san | tee target-receipts/sanitized.log
+          git fetch --no-tags --depth=1 origin b7ad6410eca359603195634059cb2e9b2cabc4ec
+          git show b7ad6410eca359603195634059cb2e9b2cabc4ec:platform/dac-lifecycle/clock_sink.hpp > "$RUNNER_TEMP/clock_sink.hpp"
+          test "$(git hash-object "$RUNNER_TEMP/clock_sink.hpp")" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-test
+          ./audio-owner-test | tee target-receipts/audio-owner.log
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-san
+          ./audio-owner-san | tee target-receipts/audio-owner-san.log
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio --version > target-receipts/toolchain.txt
+          pio run -e cyd-phosphor-frontpanel 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > target-receipts/notice-hashes.txt
+          cp .pio/build/cyd-phosphor-frontpanel/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-phosphor-frontpanel/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phosphor-target-frontpanel-receipts-no-firmware
+          path: instruments/phosphor/target-receipts/
+          if-no-files-found: error
