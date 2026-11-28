@@ -27,6 +27,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
           New-Item -ItemType Directory -Force "owner package/media" | Out-Null
           @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+          $pin = 'b7ad6410eca359603195634059cb2e9b2cabc4ec'
+          $blob = '0cc9887b6325cf79b414d5ef026c4c20946bfbf8'
+          git fetch --no-tags --depth=1 origin $pin
+          if ($LASTEXITCODE -ne 0) { throw "Cannot fetch P14 source" }
+          $archive = Join-Path $env:RUNNER_TEMP 'phosphor-p14.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'phosphor P14 source'
+          git archive --format=zip "--output=$archive" $pin platform/dac-lifecycle/clock_sink.hpp
+          if ($LASTEXITCODE -ne 0) { throw "Cannot export P14 source" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $header = Join-Path $extract 'platform/dac-lifecycle/clock_sink.hpp'
+          $actual = git hash-object --no-filters $header
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $blob) { throw "Wrong P14 source blob" }
+          Copy-Item -LiteralPath $header -Destination 'owner package/clock_sink.hpp'
+          @($pin, $blob, 'platform/dac-lifecycle/clock_sink.hpp') | Set-Content -Encoding ascii 'owner package/P14-SOURCE.txt'
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -42,15 +56,21 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread split_test.cpp -o "$stage/split-test.exe" -static
           g++ -std=c++17 -O2 -Wall -Wextra -Werror desktop_test.cpp -o "$stage/desktop-test.exe" -static
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -I/ucrt64/include/SDL2 desktop.cpp -o "$stage/PHOSPHOR.exe" -lSDL2 -static-libgcc -static-libstdc++
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror board_test.cpp -o "$stage/board-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$stage" audio_owner_test.cpp -o "$stage/audio-owner-test.exe" -static
           "$stage/desktop-test.exe"
-          cp core.hpp split.hpp replay.cpp split_test.cpp desktop_session.hpp desktop_test.cpp desktop.cpp README.md M2.md M3.md "$stage/"
+          "$stage/board-test.exe"
+          "$stage/audio-owner-test.exe"
+          cp core.hpp split.hpp replay.cpp split_test.cpp desktop_session.hpp desktop_test.cpp desktop.cpp board_session.hpp board_test.cpp audio_owner.hpp audio_owner_test.cpp README.md M2.md M3.md M4.md M5.md M5R.md platformio.ini "$stage/"
+          mkdir -p "$stage/target"
+          cp target/main.cpp "$stage/target/"
           g++ --version > "$stage/TOOLCHAIN.txt"
           pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2 >> "$stage/TOOLCHAIN.txt"
           cd "$stage"
           ./replay.exe media
           ./split-test.exe
           mkdir -p notices
-          queue=(PHOSPHOR.exe)
+          queue=(PHOSPHOR.exe board-test.exe audio-owner-test.exe)
           : > IMPORTS.txt
           : > notices/PACKAGES.txt
           for ((i=0;i<${#queue[@]};i++)); do
@@ -90,6 +110,8 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           ./desktop-test.exe
           ./split-test.exe
+          ./board-test.exe
+          ./audio-owner-test.exe
           ./replay.exe "reproduced media"
           diff -qr media "reproduced media"
       - name: Extracted graphical smoke without compiler runtime PATH
@@ -97,6 +119,10 @@ jobs:
         run: |
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           Set-Location "extracted owner package"
+          & ".\board-test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted board fixture failed without compiler PATH" }
+          & ".\audio-owner-test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted audio owner fixture failed without compiler PATH" }
           & ".\PHOSPHOR.exe" --smoke
           if ($LASTEXITCODE -ne 0) { throw "Graphical smoke failed" }
       - uses: actions/upload-artifact@v4
