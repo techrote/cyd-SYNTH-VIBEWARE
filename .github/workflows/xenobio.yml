@@ -1,0 +1,144 @@
+name: XENOBIO author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/xenobio/**'
+      - '.github/workflows/xenobio.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: |
+          cmake -S instruments/xenobio -B 'build xeno' -DCMAKE_BUILD_TYPE=Release
+          cmake --build 'build xeno' -j2
+          ctest --test-dir 'build xeno' --output-on-failure
+          mkdir 'san media'
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/xenobio/replay.cpp -o replay-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -pthread instruments/xenobio/runtime_test.cpp -o runtime-san
+          ./replay-san 'san media'
+          ./runtime-san 'san media/runtime.ppm'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) {throw 'Package gate selftest failed'}
+          cmake -S instruments/xenobio -B 'build xeno' -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) {throw 'Configure failed'}
+          cmake --build 'build xeno' --config Release
+          if ($LASTEXITCODE -ne 0) {throw 'Build failed'}
+          ctest --test-dir 'build xeno' -C Release --output-on-failure -V
+          if ($LASTEXITCODE -ne 0) {throw 'Native replay failed'}
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path 'xeno-package','xeno-package/media','xeno-package/source' | Out-Null
+          Copy-Item 'build xeno/Release/*.exe' xeno-package
+          Copy-Item 'build xeno/media/*' xeno-package/media
+          Copy-Item 'build xeno/runtime.ppm' xeno-package/media
+          Copy-Item instruments/xenobio/* xeno-package/source
+          Copy-Item instruments/xenobio/WINDOWS.md xeno-package
+          git rev-parse HEAD | Set-Content -Encoding ascii xeno-package/source-commit.txt
+          if ($LASTEXITCODE -ne 0) {throw 'Commit receipt failed'}
+          git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii xeno-package/source-tree.txt
+          if ($LASTEXITCODE -ne 0) {throw 'Tree receipt failed'}
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vs) {throw 'Visual Studio discovery failed'}
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) {throw 'PE inspector unavailable'}
+          $executables = @(Get-ChildItem xeno-package -Filter '*.exe' -File)
+          if ($executables.Count -ne 3) {throw 'Wrong executable count'}
+          foreach ($exe in $executables) {
+            $imports = (& $dumpbin.FullName /dependents $exe.FullName | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*$') {throw "PE inspection failed: $($exe.Name)"}
+            if ($imports -match '(?im)^\s*(MSVCP\d+[^.\r\n]*|VCRUNTIME\d+[^.\r\n]*|CONCRT\d+[^.\r\n]*|MSVCR\d+[^.\r\n]*)\.dll\s*$') {throw "External MSVC runtime import: $($exe.Name)"}
+            Add-Content -Encoding ascii xeno-package/pe-dependencies.txt $exe.Name
+            Add-Content -Encoding ascii xeno-package/pe-dependencies.txt $imports
+          }
+          $root = (Resolve-Path xeno-package).Path
+          $payloads = @(Get-ChildItem xeno-package -File -Recurse | Sort-Object FullName)
+          $payloads | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash) $($_.FullName.Substring($root.Length + 1).Replace('\','/'))"
+          } | Set-Content -Encoding ascii xeno-package/manifest.sha256
+          Compress-Archive -Path 'xeno-package/*' -DestinationPath Xenobio-Windows.zip
+          Expand-Archive Xenobio-Windows.zip 'extracted Xeno'
+          python integration/package_gate.py verify 'extracted Xeno' --manifest manifest.sha256 --style single
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted package coverage failed'}
+          $lines = @(Get-Content 'extracted Xeno/manifest.sha256')
+          if ($lines.Count -ne $payloads.Count) {throw 'Manifest count mismatch'}
+          $lines | ForEach-Object {
+            if ($_ -notmatch '^([A-Fa-f0-9]{64}) (.+)$') {throw 'Malformed manifest'}
+            $expected = $Matches[1]; $relative = $Matches[2]
+            if ((Get-FileHash (Join-Path 'extracted Xeno' $relative) -Algorithm SHA256).Hash -ne $expected) {throw "Checksum failed: $relative"}
+          }
+          New-Item -ItemType Directory 'regenerated Xeno' | Out-Null
+          & './extracted Xeno/xenobio_replay.exe' 'regenerated Xeno'
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted core replay failed'}
+          & './extracted Xeno/xenobio_runtime_test.exe' 'regenerated Xeno/runtime.ppm'
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted runtime replay failed'}
+          $expectedMedia = @(Get-ChildItem 'extracted Xeno/media' -File)
+          if ($expectedMedia.Count -ne 15 -or @(Get-ChildItem 'regenerated Xeno' -File).Count -ne 15) {throw 'Unexpected media count'}
+          foreach ($item in $expectedMedia) {
+            if ((Get-FileHash $item.FullName).Hash -ne (Get-FileHash (Join-Path 'regenerated Xeno' $item.Name)).Hash) {throw "Media mismatch $($item.Name)"}
+          }
+          & './extracted Xeno/Xenobio.exe' --smoke
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted GDI smoke failed'}
+          (Get-FileHash Xenobio-Windows.zip -Algorithm SHA256).Hash | Set-Content -Encoding ascii Xenobio-Windows.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xenobio-windows-author
+          path: |
+            Xenobio-Windows.zip
+            Xenobio-Windows.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror instruments/xenobio/target_input_test.cpp -o target_input_test
+          ./target_input_test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          echo "PLATFORMIO_CORE_DIR=$RUNNER_TEMP/xenobio-pio" >> "$GITHUB_ENV"
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          python -c "import intelhex"
+      - run: |
+          set -o pipefail
+          mkdir xeno-target-evidence
+          pio run -d instruments/xenobio/firmware -e cyd-xenobio | tee xeno-target-evidence/build.txt
+      - run: |
+          pio pkg list -d instruments/xenobio/firmware > xeno-target-evidence/toolchain.txt
+          git rev-parse HEAD > xeno-target-evidence/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > xeno-target-evidence/source-tree.txt
+          cp instruments/xenobio/firmware/.pio/build/cyd-xenobio/firmware.map xeno-target-evidence/
+          sha256sum instruments/xenobio/firmware/.pio/build/cyd-xenobio/firmware.elf > xeno-target-evidence/elf-sha256.txt
+          test -s xeno-target-evidence/firmware.map
+          (cd xeno-target-evidence && sha256sum *.txt firmware.map > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xenobio-target-map-not-installable
+          path: xeno-target-evidence/
+          if-no-files-found: error

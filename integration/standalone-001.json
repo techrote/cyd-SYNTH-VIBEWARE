@@ -1,5 +1,5 @@
 {
-  "schema": 7,
+  "schema": 8,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
@@ -73,17 +73,41 @@
       "windows_artifact": 15254564233,
       "target_artifact": 15255493687,
       "independent_qa": "Batch007 author M4 Windows archive extracted and clean rebuilt PASS, 1764 panic positions zero failures; integrated Windows packaging repair still pending"
+    },
+    {
+      "pr": 20,
+      "head": "9a314395eac5bf577192bbdb3a58fb7cc628cf22",
+      "tree": "6098ecf645cb898cab3b157d5a3daa5a9ce383f9",
+      "path": "instruments/xenobio/",
+      "author_run": 46141001982,
+      "author_jobs_passed": 2,
+      "windows_artifact": 15260959010,
+      "target_artifact": 15261688786,
+      "independent_qa": {
+        "head": "1481a84103299cdc33d5c43c8af1d34a3acecd99",
+        "run": 46142097509,
+        "windows_job": 140970066930,
+        "target_job": 140970067163,
+        "target_artifact": 15261942720,
+        "result": "PASS exact author source and extracted Windows replay/GDI, clean rebuild, 15 media exact, modeled queue 22 schedules and 1001 epochs, independent target compile/link; no driver playback or physical qualification"
+      },
+      "integration_local": {
+        "result": "GCC Release CMake CTest 2/2, all 15 media byte exact; recovered outer and inner digest, 36 manifest entries, 14 source blobs verified against author Git identities",
+        "outer_sha256": "ef262de8e063948dca74650fa5284f5c6cb8d5a274b96650557c87e15cc2fdd2",
+        "inner_sha256": "452079bd55b0f0923350efd44bbf127058b72458553e709c9a6e440d20f9136c"
+      }
     }
   ],
   "workflow_overrides": [
     ".github/workflows/phasespace.yml",
     ".github/workflows/port-xenoresonator.yml",
     ".github/workflows/chronogrid.yml",
-    ".github/workflows/port-chronomorph.yml"
+    ".github/workflows/port-chronomorph.yml",
+    ".github/workflows/xenobio.yml"
   ],
-  "integration_gate": "PENDING_REPAIRED_EXACT_HEAD_CI",
+  "integration_gate": "PENDING_FIVE_INSTRUMENT_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
-  "qa_gate": "FROZEN_CHECKPOINT006_INDEPENDENT_TARGET_PASS_AND_CHRONOMORPH_AUTHOR_WINDOWS_PASS; REPAIRED_EXACT_HEAD_PENDING",
+  "qa_gate": "FROZEN_INDEPENDENT_AUTHOR_M4R_WINDOWS_AND_TARGET_PASS; NEW_CUMULATIVE_HEAD_PENDING",
   "owner_gate": "HOLD",
   "changed_source_paths": [],
   "repairs": [
@@ -92,7 +116,8 @@
     "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow.",
     "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending.",
     "Checkpoint 007: accept exactly GNU text and binary markers in Chronomorph extracted SHA256SUMS parser. Exercise two positive and five negative format fixtures in the same PowerShell step; retain path, duplicate, hash and completeness gates. JS-equivalent regex fixtures passed; actual PowerShell execution pending Windows CI.",
-    "Intermediate workflow-generation commit 110814fb truncated PowerShell text because JS String.replace interpreted regex anchor followed by quote as a replacement token; no Chronomorph jobs executed in failed workflow 46130598134. Corrected using literal callback replacement with exact roundtrip and stored-blob readback; no changes to runtime or qualification gates."
+    "Intermediate workflow-generation commit 110814fb truncated PowerShell text because JS String.replace interpreted regex anchor followed by quote as a replacement token; no Chronomorph jobs executed in failed workflow 46130598134. Corrected using literal callback replacement with exact roundtrip and stored-blob readback; no changes to runtime or qualification gates.",
+    "Checkpoint010: integrate exact XENOBIO M4R source, retaining independent author lineage and previous standalone apps. Add Linux native and sanitizer replay, pre-execution complete extracted payload coverage using existing integration gate, explicit IntelHex dependency, isolated PIO, nonempty map and target checksum manifest. New workflow execution pending."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
@@ -209,5 +234,29 @@
       "target_result": "all four compile/link PASS at frozen integrated 775d9397 and author Grid c0a866a7; not physical qualification",
       "limitation": "independent Windows replay of author Chronomorph archive, not failed integrated archive; source unchanged in repair"
     }
+  },
+  "checkpoint009": {
+    "head": "0803ee552ec3a60da7dfeb405d31fa846c07a74a",
+    "tree": "f558cc90a770694b06ea18c0e043f6862f323b81",
+    "author_integration_runs": [
+      46139982400,
+      46139982394,
+      46139982408,
+      46139982424
+    ],
+    "jobs_passed": 14,
+    "windows_artifacts": [
+      15261372541,
+      15261412514,
+      15261532097,
+      15261735865
+    ],
+    "target_artifacts": [
+      15261052488,
+      15261412616,
+      15261765816,
+      15260749801
+    ],
+    "artifact_verification": "GitHub metadata/digests and successful jobs; not independent extracted archive verification"
   }
 }
