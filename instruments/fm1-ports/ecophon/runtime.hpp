@@ -36,10 +36,11 @@ struct Input {
     }
     void emergency(){fault.store(1,std::memory_order_release);}
     // Consumer only. No producer writes while fault is set.
-    bool recover(){
+    template<class Emergency> bool recover(Emergency beforeClear){
         if(!fault.load(std::memory_order_acquire))return false;
-        queue.discard();fault.store(0,std::memory_order_release);return true;
+        queue.discard();beforeClear();fault.store(0,std::memory_order_release);return true;
     }
+    bool recover(){return recover([]{});}
 };
 // SPSC latest-value mailbox. Three independently owned slots. The atomic
 // exchange transfers ownership of the middle slot, never the reader's front.
@@ -67,18 +68,19 @@ struct Runtime {
     Runtime(){engine.reset(0,42);engine.panic();}
     static bool stale(uint32_t now,uint32_t then){const auto age=uint32_t(now-then);return age>=lease_ms&&age<0x80000000u;}
     void panic(){++panic_epoch;engine.panic();touch.release();inhibited=true;}
-    void pump(Input& in,uint32_t now){
-        if(in.recover()){panic();return;}
-        if(touch.held&&stale(now,last))panic();
+    template<class Emergency> void pump(Input& in,uint32_t now,Emergency beforePanic){
+        if(in.recover(beforePanic)){panic();return;}
+        if(touch.held&&stale(now,last)){beforePanic();panic();}
         Contact c{};
         for(unsigned i=0;i<32&&in.queue.pop(c);++i){
             if(!c.down){touch.release();inhibited=false;continue;}
             if(inhibited)continue;
-            if(stale(now,c.ms)){panic();continue;}
+            if(stale(now,c.ms)){beforePanic();panic();continue;}
             last=c.ms;touch.contact(engine,c.x,c.y);
         }
-        if(in.recover())panic();
+        if(in.recover(beforePanic))panic();
     }
+    void pump(Input& in,uint32_t now){pump(in,now,[]{});}
     void render(Input& in,uint32_t now,int16_t* pcm,size_t n){pump(in,now);engine.render(pcm,n);}
 };
 }

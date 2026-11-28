@@ -6,7 +6,16 @@
 #include <SPI.h>
 #include <LovyanGFX.hpp>
 #include <XPT2046_Touchscreen.h>
+#ifdef ECO_TIMER_DAC
+#include "../sample_sink.hpp"
+#include <driver/dac.h>
+#include <driver/timer.h>
+#include <esp_intr_alloc.h>
+#include <soc/rtc_io_reg.h>
+#include <soc/soc.h>
+#else
 #include <driver/i2s.h>
+#endif
 using namespace ecophon;
 namespace {
 constexpr unsigned block=128, strip=4;
@@ -31,6 +40,64 @@ Views views;
 TargetGate gate;
 std::atomic<bool> audioFault{false};
 bool ready=false,started=false;
+#ifdef ECO_TIMER_DAC
+// Experimental non-DMA route. Timer and producer are registered on core 0.
+// Hardware/IRAM/timing/analog acceptance are still HOLD.
+SampleSink sampleSink;
+bool IRAM_ATTR sampleTick(void*){
+    const auto code=sampleSink.tick(input.fault.load(std::memory_order_acquire)!=0);
+    REG_SET_FIELD(RTC_IO_PAD_DAC2_REG,RTC_IO_PDAC2_DAC,code);
+    return false;
+}
+void audioTask(void*){
+    Runtime rt;
+    std::array<int16_t,block> pcm{};
+    timer_config_t config{};
+    config.alarm_en=TIMER_ALARM_EN;config.counter_en=TIMER_PAUSE;
+    config.intr_type=TIMER_INTR_LEVEL;config.counter_dir=TIMER_COUNT_UP;
+    config.auto_reload=TIMER_AUTORELOAD_EN;config.divider=2;
+    bool timerReady=false,handlerReady=false;
+    // 80 MHz APB / 2 / 1667 = nominal 23995.2 samples/s, not measured.
+    if(getApbFrequency()==80000000&&timer_init(TIMER_GROUP_0,TIMER_0,&config)==ESP_OK){
+        timerReady=true;
+        if(timer_set_counter_value(TIMER_GROUP_0,TIMER_0,0)==ESP_OK&&
+           timer_set_alarm_value(TIMER_GROUP_0,TIMER_0,1667)==ESP_OK&&
+           timer_isr_callback_add(TIMER_GROUP_0,TIMER_0,sampleTick,nullptr,ESP_INTR_FLAG_IRAM)==ESP_OK){
+            handlerReady=true;
+            if(dac_i2s_disable()==ESP_OK&&dac_output_enable(DAC_CHANNEL_2)==ESP_OK&&
+               dac_output_voltage(DAC_CHANNEL_2,SampleSink::midpoint)==ESP_OK&&
+               timer_start(TIMER_GROUP_0,TIMER_0)==ESP_OK){
+                uint32_t lastPublished=millis();
+                for(;;){
+                    // Invalidate before recover clears the cross-core emergency flag.
+                    rt.pump(input,millis(),[]{sampleSink.invalidate();});
+                    if(!sampleSink.ready()){
+                        views.publish(rt.engine);
+                        if(uint32_t(millis()-lastPublished)>=100)break;
+                        vTaskDelay(1);continue;
+                    }
+                    rt.engine.render(pcm.data(),pcm.size());
+                    views.publish(rt.engine);
+                    if(!sampleSink.push(pcm.data()))break;
+                    lastPublished=millis();
+                }
+            }
+        }
+    }
+    audioFault.store(true,std::memory_order_release);
+    if(timerReady)timer_pause(TIMER_GROUP_0,TIMER_0);
+    if(handlerReady)timer_isr_callback_remove(TIMER_GROUP_0,TIMER_0);
+    if(timerReady)timer_deinit(TIMER_GROUP_0,TIMER_0);
+    dac_output_voltage(DAC_CHANNEL_2,SampleSink::midpoint);
+    dac_output_disable(DAC_CHANNEL_2);
+    vTaskDelete(nullptr);
+}
+bool startAudio(){
+    if(started)return true;
+    if(xTaskCreatePinnedToCore(audioTask,"ecophon-audio",6144,nullptr,5,nullptr,0)!=pdPASS)return false;
+    started=true;return true;
+}
+#else
 bool silenceDriver(){
     // Disconnect analog output before clearing the DMA ring. This is a
     // candidate backend sequence, not a measured hardware mute latency.
@@ -55,7 +122,7 @@ void audioTask(void*){
             // Do not submit the pre-drain block, even if restarted in pump.
             continue;
         }
-        if(input.fault.load(std::memory_order_acquire))continue;
+        if(input.fault.load(std::memory_order_acquire)){vTaskDelay(1);continue;}
         for(unsigned i=0;i<block;++i)slots[2*i]=slots[2*i+1]=dacWord(pcm[i]);
         size_t sent=0;
         if(i2s_write(I2S_NUM_0,slots.data(),sizeof(slots),&sent,pdMS_TO_TICKS(20))!=ESP_OK||
@@ -86,6 +153,7 @@ bool startAudio(){
     }
     started=true;return true;
 }
+#endif
 void present(uint32_t now){
     static uint32_t frameAt=0;
     static unsigned scan=240;
