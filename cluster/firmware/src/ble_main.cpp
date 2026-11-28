@@ -11,6 +11,8 @@
 #include <BLEAdvertising.h>
 #include <esp_timer.h>
 #include <atomic>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <cstdio>
 #include <cstring>
 using namespace cluster;
@@ -111,7 +113,7 @@ void command(const char* s){
 namespace {
 BLEClient* client=nullptr;
 BLERemoteCharacteristic* wr=nullptr;BLERemoteCharacteristic* rd=nullptr;
-uint32_t epoch=0,sequence=0,attempts=0,matched=0;
+uint32_t epoch=0,sequence=0,attempts=0,matched=0,timely=0;
 bool running=false,pending=false;
 int64_t sent=0;uint32_t next_job=0;
 bool read_remote(uint32_t& e,uint32_t& seq){
@@ -136,7 +138,7 @@ void command(const char* s){
     }
     if(!std::strcmp(s,"run")&&client&&client->isConnected()&&wr&&rd&&!running){
         uint32_t e=0,q=0;if(!read_remote(e,q)||e!=epoch||q>sequence){Serial.println("epoch/watermark changed; reconnect");return;}
-        attempts=matched=0;running=true;pending=false;next_job=millis();return;
+        attempts=matched=timely=0;running=true;pending=false;next_job=millis();return;
     }
     if(!std::strcmp(s,"stop")){running=pending=false;return;}
     if(!std::strcmp(s,"disconnect")&&client){running=pending=false;if(client->isConnected())client->disconnect();wr=rd=nullptr;return;}
@@ -152,13 +154,14 @@ void client_tick(){
         const auto elapsed=esp_timer_get_time()-sent;
         if(ok||elapsed>=1000000){
             if(ok)++matched;
-            Serial.printf("ble sample seq=%lu applied=%u elapsed_us=%lld\n",static_cast<unsigned long>(sequence),unsigned(ok),static_cast<long long>(elapsed));
+            if(ok&&elapsed<=1000000)++timely;
+            Serial.printf("ble sample seq=%lu applied=%u within_limit=%u elapsed_us=%lld\n",static_cast<unsigned long>(sequence),unsigned(ok),unsigned(ok&&elapsed<=1000000),static_cast<long long>(elapsed));
             pending=false;next_job=millis()+100;
         }
         return;
     }
     if(attempts==32||sequence==0xffffffffu){
-        running=false;Serial.printf("ble end attempts=%lu matched=%lu\n",static_cast<unsigned long>(attempts),static_cast<unsigned long>(matched));return;
+        running=false;Serial.printf("ble end attempts=%lu matched=%lu timely=%lu\n",static_cast<unsigned long>(attempts),static_cast<unsigned long>(matched),static_cast<unsigned long>(timely));return;
     }
     if(int32_t(millis()-next_job)<0)return;
     ++sequence;++attempts;auto b=ble::encode({epoch,sequence,uint16_t(attempts*1999),uint16_t(65535-attempts*1900)});
@@ -196,7 +199,7 @@ void loop(){
         else rejected.fetch_add(1);
     }
     if(gen!=generation.load())mod.mode(false,generation.load());
-    const auto now=millis();panel.input(input,now);
+    const auto now=millis();mod.expire(now);panel.input(input,now);
     const auto xy=mod.effective(input.local,now);field.xy(xy.x,xy.y);
     auto route=send_nothing;field.tick(now,route);
     panel.output(field,now,false,0,false,false,mod.fresh(now)?"BLE MOD":"LOCAL");

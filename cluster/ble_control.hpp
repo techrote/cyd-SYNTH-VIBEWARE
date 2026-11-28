@@ -49,6 +49,8 @@ public:
            !c.seq||c.seq<=last_||uint32_t(now-a.received)>lease_ms)return false;
         last_=c.seq;stamp_=a.received;remote_={c.x,c.y};active_=true;return true;
     }
+    // Call each control tick; permanently expire an old value before full timer wrap.
+    void expire(uint32_t now){if(active_&&uint32_t(now-stamp_)>lease_ms)active_=false;}
     bool fresh(uint32_t now)const{return enabled_&&active_&&uint32_t(now-stamp_)<=lease_ms;}
     XY effective(XY local,uint32_t now)const{
         if(!fresh(now))return local;

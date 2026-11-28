@@ -1,4 +1,5 @@
 #include "ble_control.hpp"
+#include "field_av.hpp"
 #include <cstdio>
 #include <cstdlib>
 using namespace cluster::ble;
@@ -32,5 +33,21 @@ int main(){
     }
     check(m.receive({{c.epoch,0xffffffffu,0,0},2000,3},2000));
     check(!m.receive({{c.epoch,1,0,0},2001,3},2001));
+    m.expire(2251);check(!m.fresh(2000)); // old stamp cannot resurrect after full timer wrap
+    Modulator live(55);live.mode(true,1);
+    check(live.receive({{55,1,65535,0},5,1},5));
+    cluster::av::Field field(1),reference(1);const XY origin{10000,40000};
+    auto none=[](const cluster::Frame&){return false;};
+    const auto mixed=live.effective(origin,5);
+    field.xy(mixed.x,mixed.y);reference.xy(mixed.x,mixed.y);
+    field.gate(false);reference.gate(false);field.tick(5,none);reference.tick(5,none);
+    check(field.grid()==reference.grid());check(field.shown().x==mixed.x&&field.shown().y==mixed.y);
+    check(field.sound()==0); // remote control cannot open gate
+    field.gate(true);check(field.sound()!=0);
+    live.expire(256);const auto fallback=live.effective(origin,256);
+    field.xy(fallback.x,fallback.y);reference.xy(origin.x,origin.y);
+    field.gate(false);reference.gate(false);field.tick(256,none);reference.tick(256,none);
+    check(field.grid()==reference.grid());check(field.shown().x==origin.x&&field.shown().y==origin.y);
+    check(field.sound()==0);
     std::printf("BLE control: %u checks PASS\n",checks);
 }
