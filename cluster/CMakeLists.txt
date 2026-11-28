@@ -132,3 +132,5 @@ else()
   target_compile_options(cluster_lan_test PRIVATE -Wall -Wextra -Werror -pedantic)
 endif()
 add_test(NAME cluster_lan COMMAND cluster_lan_test)
+
+add_test(NAME cluster_transport_capture COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/transport_capture_test.py)
