@@ -134,3 +134,13 @@ endif()
 add_test(NAME cluster_lan COMMAND cluster_lan_test)
 
 add_test(NAME cluster_transport_capture COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/transport_capture_test.py)
+
+add_executable(cluster_ble_test ble_control_test.cpp)
+target_compile_features(cluster_ble_test PRIVATE cxx_std_17)
+set_target_properties(cluster_ble_test PROPERTIES CXX_EXTENSIONS OFF)
+if(MSVC)
+  target_compile_options(cluster_ble_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(cluster_ble_test PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()
+add_test(NAME cluster_ble COMMAND cluster_ble_test)
