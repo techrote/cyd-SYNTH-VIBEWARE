@@ -1,0 +1,46 @@
+name: PORT Chronomorph native core
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/chronomorph/**'
+      - '.github/workflows/port-chronomorph.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: instruments/fm1-ports/chronomorph
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Build actual core
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir media
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay.exe
+          ./replay.exe media
+          sha256sum media/* > SHA256SUMS.txt
+      - name: Sanitizers
+        if: runner.os == 'Linux'
+        run: |
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined replay.cpp -o replay-san
+          mkdir san
+          ./replay-san san
+          diff -qr media san
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronomorph-native-${{ runner.os }}
+          path: |
+            instruments/fm1-ports/chronomorph/media/
+            instruments/fm1-ports/chronomorph/SHA256SUMS.txt
+            instruments/fm1-ports/chronomorph/core.hpp
+            instruments/fm1-ports/chronomorph/replay.cpp
+            instruments/fm1-ports/chronomorph/README.md
+            instruments/fm1-ports/chronomorph/replay.exe
