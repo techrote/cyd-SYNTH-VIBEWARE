@@ -1,0 +1,142 @@
+name: QA batch 013 independent integrated Windows and board builds
+on:
+  pull_request:
+    paths:
+      - 'qualification/replay013.py'
+      - '.github/workflows/qa-batch-013.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 319664f449f2c4e77ced3ff80f5a743e4ad36b59
+          path: integrated
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check exact frozen source
+        shell: pwsh
+        run: |
+          if ((git -C integrated rev-parse HEAD) -ne '319664f449f2c4e77ced3ff80f5a743e4ad36b59') {throw 'Head mismatch'}
+          if ((git -C integrated rev-parse 'HEAD^{tree}') -ne '5a4b413929afe0f420e80f7c2e71c42f1136ebce') {throw 'Tree mismatch'}
+          if (git -C integrated status --porcelain) {throw 'Dirty source'}
+      - name: Independent extracted Windows replay of all five original archives
+        run: python qualification/replay013.py
+      - name: Clean MSVC core and GDI rebuild
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          foreach ($name in @('phasespace','chronogrid','xenobio')) {
+            $build = "clean build $name"
+            cmake -S "integrated/instruments/$name" -B $build -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+            cmake --build $build --config Release
+            ctest --test-dir $build -C Release --output-on-failure
+            & "$build/Release/$name.exe" --smoke
+            Write-Host "PASS clean MSVC core and GDI $name"
+          }
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Clean UCRT64 ports and target-input fixtures
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          g++ --version
+          for name in xenoresonator chronomorph; do
+            (
+              cd "integrated/instruments/fm1-ports/$name"
+              mkdir 'clean media'
+              g++ -std=c++17 -O2 -Wall -Wextra replay.cpp -o replay.exe -static
+              g++ -std=c++17 -O2 windows.cpp -o instrument.exe -pthread -lwinmm -lgdi32 -luser32 -static
+              ./replay.exe 'clean media'
+              if [ "$name" = chronomorph ]; then
+                g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime.exe -static
+                g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o gate.exe -static
+                ./runtime.exe
+                ./gate.exe
+              fi
+              ./instrument.exe --smoke
+            )
+            echo "PASS clean UCRT64 core and GDI $name"
+          done
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror integrated/instruments/xenobio/target_input_test.cpp -o gate.exe -static
+          ./gate.exe
+  independent-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 319664f449f2c4e77ced3ff80f5a743e4ad36b59
+          path: integrated
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
+      - name: Independent clean compile/link for five frozen board profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C integrated rev-parse HEAD)" = 319664f449f2c4e77ced3ff80f5a743e4ad36b59
+          test "$(git -C integrated rev-parse 'HEAD^{tree}')" = 5a4b413929afe0f420e80f7c2e71c42f1136ebce
+          test -z "$(git -C integrated status --porcelain)"
+          mkdir qa-target-receipts
+          pio system info > qa-target-receipts/system.txt
+          python -m pip freeze > qa-target-receipts/python-packages.txt
+          build() {
+            local dir="integrated/$1" env="$2" out="qa-target-receipts/$2"
+            mkdir "$out"
+            export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/qa013-pio-$env"
+            test ! -e "$PLATFORMIO_CORE_DIR"
+            git -C integrated rev-parse HEAD > "$out/source-commit.txt"
+            git -C integrated rev-parse 'HEAD^{tree}' > "$out/source-tree.txt"
+            cp "$dir/platformio.ini" "$out/platformio.ini"
+            pio run -d "$dir" -e "$env" 2>&1 | tee "$out/build.txt"
+            pio pkg list -d "$dir" -e "$env" > "$out/toolchain.txt"
+            local b="$dir/.pio/build/$env"
+            test -s "$b/firmware.map"
+            test -s "$b/firmware.elf"
+            cp "$b/firmware.map" "$out/firmware.map"
+            sha256sum "$b/firmware.elf" > "$out/elf-sha256.txt"
+            find "$dir/.pio/libdeps/$env" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > "$out/dependency-notice-hashes.txt"
+            (cd "$out" && sha256sum *.txt platformio.ini firmware.map > manifest.sha256 && sha256sum -c manifest.sha256)
+          }
+          failed=0
+          run_build() {
+            local env="$2" status
+            if bash -euo pipefail -c "$(declare -f build); build \"\$@\"" qa-build "$@"; then
+              status=PASS
+            else
+              status=FAIL
+              failed=1
+            fi
+            printf '%s\t%s\n' "$env" "$status" | tee -a qa-target-receipts/profile-status.tsv
+          }
+          run_build instruments/phasespace/firmware cyd-phasespace
+          run_build instruments/chronogrid/firmware cyd-chronogrid
+          run_build instruments/fm1-ports/xenoresonator cyd-port-xeno
+          run_build instruments/fm1-ports/chronomorph cyd-port-chrono
+          run_build instruments/xenobio/firmware cyd-xenobio
+          exit "$failed"
+      - name: Preserve only non-installable receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-batch-013-target-receipts-no-firmware
+          path: qa-target-receipts/
+          if-no-files-found: warn
