@@ -42,7 +42,7 @@ jobs:
           git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii phase-package/source-tree.txt
           if ($LASTEXITCODE -ne 0) {throw 'Source tree receipt failed'}
           # Refuse an accidental regression to the external MSVC C++ runtime.
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if ($LASTEXITCODE -ne 0 -or -not $vs) {throw 'Visual Studio discovery failed'}
           $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
@@ -51,103 +51,10 @@ jobs:
           if ($executables.Count -ne 2) {throw 'Unexpected package executable count'}
           foreach ($exe in $executables) {
             $imports = (& $dumpbin.FullName /dependents $exe.FullName | Out-String)
-            if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*
-          & ./phase-package/phasespace_replay.exe phase-package/media
-          if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
-          Compress-Archive -Path 'phase-package/*' -DestinationPath phasespace-windows.zip
-          Expand-Archive phasespace-windows.zip 'extracted phase'
-          & './extracted phase/phasespace_replay.exe'
-          if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
-          & './extracted phase/phasespace.exe' --smoke
-          if ($LASTEXITCODE -ne 0) {throw 'Extracted GDI smoke failed'}
-          (Get-FileHash phasespace-windows.zip -Algorithm SHA256).Hash | Set-Content phasespace-windows.sha256
-      - if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: phasespace-windows
-          path: |
-            phasespace-windows.zip
-            phasespace-windows.sha256
-          if-no-files-found: error
-  sanitizers:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/phasespace/replay.cpp -o phase_sanitized
-      - run: ./phase_sanitized
-        env:
-          UBSAN_OPTIONS: halt_on_error=1
-          ASAN_OPTIONS: halt_on_error=1
-  target:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: python -m pip install platformio==6.1.18
-      - run: pio run -d instruments/phasespace/firmware -e cyd-phasespace
-      - run: |
-          mkdir phase-target-evidence
-          pio pkg list -d instruments/phasespace/firmware > phase-target-evidence/toolchain.txt
-          git rev-parse HEAD > phase-target-evidence/source-commit.txt
-          cp instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.map phase-target-evidence/
-          sha256sum instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.elf > phase-target-evidence/elf-sha256.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phasespace-target-map-not-installable
-          path: phase-target-evidence/
-          if-no-files-found: error
-) {throw "PE dependency inspection failed: $($exe.Name)"}
-            if ($imports -match '(?im)^\s*(MSVCP\d+[^.\r\n]*|VCRUNTIME\d+[^.\r\n]*|CONCRT\d+[^.\r\n]*|MSVCR\d+[^.\r\n]*)\.dll\s*
-          & ./phase-package/phasespace_replay.exe phase-package/media
-          if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
-          Compress-Archive -Path 'phase-package/*' -DestinationPath phasespace-windows.zip
-          Expand-Archive phasespace-windows.zip 'extracted phase'
-          & './extracted phase/phasespace_replay.exe'
-          if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
-          & './extracted phase/phasespace.exe' --smoke
-          if ($LASTEXITCODE -ne 0) {throw 'Extracted GDI smoke failed'}
-          (Get-FileHash phasespace-windows.zip -Algorithm SHA256).Hash | Set-Content phasespace-windows.sha256
-      - if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: phasespace-windows
-          path: |
-            phasespace-windows.zip
-            phasespace-windows.sha256
-          if-no-files-found: error
-  sanitizers:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/phasespace/replay.cpp -o phase_sanitized
-      - run: ./phase_sanitized
-        env:
-          UBSAN_OPTIONS: halt_on_error=1
-          ASAN_OPTIONS: halt_on_error=1
-  target:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: python -m pip install platformio==6.1.18
-      - run: pio run -d instruments/phasespace/firmware -e cyd-phasespace
-      - run: |
-          mkdir phase-target-evidence
-          pio pkg list -d instruments/phasespace/firmware > phase-target-evidence/toolchain.txt
-          git rev-parse HEAD > phase-target-evidence/source-commit.txt
-          cp instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.map phase-target-evidence/
-          sha256sum instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.elf > phase-target-evidence/elf-sha256.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phasespace-target-map-not-installable
-          path: phase-target-evidence/
-          if-no-files-found: error
-) {throw "External MSVC runtime import: $($exe.Name)"}
-            Add-Content -Encoding ascii phase-package/pe-dependencies.txt "$($exe.Name)`n$imports"
+            if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*$') {throw "PE dependency inspection failed: $($exe.Name)"}
+            if ($imports -match '(?im)^\s*(MSVCP\d+[^.\r\n]*|VCRUNTIME\d+[^.\r\n]*|CONCRT\d+[^.\r\n]*|MSVCR\d+[^.\r\n]*)\.dll\s*$') {throw "External MSVC runtime import: $($exe.Name)"}
+            Add-Content -Encoding ascii phase-package/pe-dependencies.txt $exe.Name
+            Add-Content -Encoding ascii phase-package/pe-dependencies.txt $imports
           }
           & ./phase-package/phasespace_replay.exe phase-package/media
           if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
