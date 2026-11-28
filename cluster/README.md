@@ -369,3 +369,6 @@ first six scenes and fault gates remain unchanged; gallery packaging now checks
 seven WAVs plus the metrics CSV. Windows smoke exercises focus keyboard movement
 and reset. Embedded profiles remain visual-only; this is not physical touch,
 radio or audio-device qualification.
+
+## M24: local spectral colour
+T cycles four spectral colours (0–3) independently of palette and XY focus. Colour 0 is the original triangle; colour 3 is a convex mix of half fundamental triangle and quarter each phase-locked second/third partial. Intermediate colours interpolate; full morph slews over 384 samples (16 ms at 24 kHz), without phase reset or added packet bytes. Digital peak bound remains 24,192. Scene 08-local-spectral-colour cycles these colours on the same local field as scene 01; original seven tracks remain unchanged. Windows smoke cycles T, and the dedicated gallery gates compare eight WAVs plus metrics CSV. No hardware audio adoption or listening claim.

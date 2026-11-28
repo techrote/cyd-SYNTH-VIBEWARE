@@ -29,7 +29,7 @@ jobs:
           build/cluster/cluster_checkpoint --gallery cluster-gallery-linux/reaction-gallery
           build/cluster/cluster_checkpoint --gallery 'linux reaction replay'
           diff -r cluster-gallery-linux/reaction-gallery 'linux reaction replay'
-          test "$(find cluster-gallery-linux/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 8
+          test "$(find cluster-gallery-linux/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
           printf '%s\n' "$PR_HEAD_SHA" > cluster-gallery-linux/source-pr-head.txt
           git rev-parse HEAD > cluster-gallery-linux/source-commit.txt
           git rev-parse 'HEAD^{tree}' > cluster-gallery-linux/source-tree.txt
@@ -190,7 +190,7 @@ jobs:
           & './extracted cluster/cluster_checkpoint.exe' --gallery 'reaction replay'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction gallery failed' }
           $gallery = @(Get-ChildItem "$extracted/reaction-gallery" -File)
-          if ($gallery.Count -ne 8) { throw 'Unexpected reaction gallery file count' }
+          if ($gallery.Count -ne 9) { throw 'Unexpected reaction gallery file count' }
           foreach ($file in $gallery) {
             $replay = Join-Path 'reaction replay' $file.Name
             if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $replay -Algorithm SHA256).Hash) {
@@ -230,10 +230,10 @@ jobs:
             diff "linux-gallery/$receipt" <(tr -d '\r' < "windows-gallery/$receipt")
           done
           (cd linux-gallery && sha256sum -c gallery.sha256)
-          test "$(find linux-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 8
-          test "$(find windows-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 8
+          test "$(find linux-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
+          test "$(find windows-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
           diff -r linux-gallery/reaction-gallery windows-gallery/reaction-gallery
-          echo 'PASS exact Linux/Windows reaction gallery (seven WAVs and metrics CSV)'
+          echo 'PASS exact Linux/Windows reaction gallery (eight WAVs and metrics CSV)'
   sanitizers:
     runs-on: ubuntu-latest
     steps:

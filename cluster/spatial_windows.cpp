@@ -21,7 +21,7 @@ unsigned accepted=0,rejected=0,recovered=0,paints=0,local_ticks=0,remote_ticks=0
 std::atomic<uint32_t> audio_word{0},audio_stamp{0};
 std::atomic<bool> audio_stop{false},audio_ok{false};
 bool sound_enabled=false;
-unsigned palette=0,focus_x=128,focus_y=128;
+unsigned palette=0,focus_x=128,focus_y=128,colour=0;
 void focus_at(HWND w,LPARAM pos){
     RECT client{};GetClientRect(w,&client);
     const int width=int(client.right),height=std::max(1,int(client.bottom)-32);
@@ -107,7 +107,7 @@ void update(HWND w){
     }
     if(view.frozen())++frozen_polls;
     view.present(ms());
-    audio_word.store(sf::sound::focus_word(sf::sound::controls(view.image(),palette,sound_enabled),focus_x,focus_y),std::memory_order_release);
+    audio_word.store(sf::sound::colour_word(sf::sound::focus_word(sf::sound::controls(view.image(),palette,sound_enabled),focus_x,focus_y),colour),std::memory_order_release);
     audio_stamp.store(ms(),std::memory_order_release);
     InvalidateRect(w,nullptr,FALSE);
     if(smoke&&uint32_t(now-start)>=(checkpoint_smoke?6000u:(udp_smoke?4000u:600u)))DestroyWindow(w);
@@ -128,6 +128,7 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         else if(wp=='S'&&!(lp&(1L<<30))){if(sound_enabled)mute();else sound_enabled=true;}
         else if(wp=='M')mute();
         else if(wp>='1'&&wp<='4')palette=unsigned(wp-'1');
+        else if(wp=='T'&&!(lp&(1L<<30)))colour=(colour+1u)%4u;
         else if(wp==VK_HOME)focus_x=focus_y=128u;
         else if(wp==VK_LEFT)focus_x=focus_x>=16u?focus_x-16u:0u;
         else if(wp==VK_RIGHT)focus_x=std::min(256u,focus_x+16u);
@@ -164,9 +165,9 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,230,235));
         char status[200];
         const auto& f=view.follower();
-        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | %s P%u | XY %u,%u | S/M 1-4 R | arrows/Home/right-drag",
+        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | %s P%u | XY %u,%u T%u | S/M 1-4 R T | arrows/Home/right-drag",
             view.frozen()?"CATCH-UP":(f.remote()?"REMOTE":"LOCAL"),view.blending()&&!view.frozen()?" (blend)":"",
-            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()),audio_ok.load()?(sound_enabled?"sound on":"muted"):"audio unavailable",palette+1,focus_x,focus_y);
+            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()),audio_ok.load()?(sound_enabled?"sound on":"muted"):"audio unavailable",palette+1,focus_x,focus_y,colour);
         DrawTextA(dc,status,-1,&bar,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         if(result!=GDI_ERROR&&result!=0)++paints;
         EndPaint(w,&ps);return 0;
@@ -206,6 +207,10 @@ int main(int argc,char** argv){
         if(focus_x!=144u||focus_y!=112u)fail("focus key smoke");
         SendMessageA(w,WM_KEYDOWN,VK_HOME,0);
         if(focus_x!=128u||focus_y!=128u)fail("focus reset smoke");
+        for(unsigned i=1;i<=4;++i){
+            SendMessageA(w,WM_KEYDOWN,'T',0);
+            if(colour!=i%4u)fail("colour cycle smoke");
+        }
     }
     start=ms();sync_allowed();view.present(start);
     std::thread audio;

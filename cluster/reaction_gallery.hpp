@@ -38,7 +38,7 @@ inline void wav(const std::filesystem::path& file,const std::vector<int16_t>& pc
     out.close();check(bool(out),"gallery WAV write");
 }
 inline Stats render(unsigned palette,bool remote,bool fault,
-                    std::vector<int16_t>& pcm,Check check,bool focused=false){
+                    std::vector<int16_t>& pcm,Check check,bool focused=false,bool coloured=false){
     ReactionView view(epoch);
     ReactionField worker;
     ReactionField::Checkpoint state{},last_remote_state{},actual{};
@@ -93,6 +93,7 @@ inline Stats render(unsigned palette,bool remote,bool fault,
             const unsigned y=(ys[edge]*(2000u-t)+ys[next]*t)/2000u;
             word=sound::focus_word(word,x,y);
         }
+        if(coloured)word=sound::colour_word(word,(now/2000u)%4u);
         std::array<int16_t,samples_per_ms> block{};
         voice.render(word,block.data(),block.size());
         for(const auto sample:block){
@@ -126,7 +127,7 @@ inline Stats render(unsigned palette,bool remote,bool fault,
     return stats;
 }
 inline void run(Check check,const std::filesystem::path* folder=nullptr){
-    struct Scene {const char* name;unsigned palette;bool remote,fault,focused=false;};
+    struct Scene {const char* name;unsigned palette;bool remote,fault,focused=false,coloured=false;};
     constexpr Scene scenes[]={
         {"01-local-open-fifths",0,false,false},
         {"02-local-higher-fifths",1,false,false},
@@ -134,7 +135,8 @@ inline void run(Check check,const std::filesystem::path* folder=nullptr){
         {"04-local-major",3,false,false},
         {"05-remote-clean",0,true,false},
         {"06-remote-blackout",0,true,true},
-        {"07-local-focus-orbit",0,false,false,true}};
+        {"07-local-focus-orbit",0,false,false,true},
+        {"08-local-spectral-colour",0,false,false,false,true}};
     std::ofstream receipt;
     if(folder){
         check(std::filesystem::create_directory(*folder),"gallery requires new output directory");
@@ -143,10 +145,10 @@ inline void run(Check check,const std::filesystem::path* folder=nullptr){
         receipt<<"scene,samples,peak,max_delta,sum,nonzero,pcm_fnv32,frozen_ms,catchups,checkpoints\n";
     }
     std::vector<int16_t> pcm;
-    std::array<uint32_t,7> hashes{};
+    std::array<uint32_t,8> hashes{};
     std::size_t index=0;
     for(const auto& scene:scenes){
-        const auto s=render(scene.palette,scene.remote,scene.fault,pcm,check,scene.focused);
+        const auto s=render(scene.palette,scene.remote,scene.fault,pcm,check,scene.focused,scene.coloured);
         hashes[index++]=s.hash;
         if(folder){
             wav(*folder/(std::string(scene.name)+".wav"),pcm,check);
@@ -161,6 +163,7 @@ inline void run(Check check,const std::filesystem::path* folder=nullptr){
         check(hashes[i]!=hashes[j],"gallery distinct palettes");
     check(hashes[4]!=hashes[5],"gallery audible fault-path difference");
     check(hashes[0]!=hashes[6],"gallery focus changes actual-core PCM");
+    check(hashes[0]!=hashes[7],"gallery colour changes actual-core PCM");
     if(folder){receipt.close();check(bool(receipt),"gallery receipt write");}
 }
 } // namespace cluster::spatial::gallery

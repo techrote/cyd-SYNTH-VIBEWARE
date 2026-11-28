@@ -63,5 +63,31 @@ template<class Check> void regression(Check check){
     for(auto sample:a)check(sample>=-24192&&sample<=24192,"moving focus headroom");
     focused_voice.render(focus_word(0,0,0),a.data(),a.size());
     for(unsigned i=768;i<a.size();++i)check(a[i]==0,"moving focus release");
+    check(colour_word(0,3)==0,"colour mute");
+    check(colour_word(full,999)==colour_word(full,3),"colour clamp");
+    for(unsigned c=0;c<4;++c)for(unsigned x=0;x<=256;x+=8)for(unsigned y=0;y<=256;y+=8)
+        check(focus_word(colour_word(full,c),x,y)==colour_word(focus_word(full,x,y),c),"colour focus commute");
+    std::array<int16_t,2400> baseline{};
+    Voice neutral_colour;
+    neutral_colour.render(full,baseline.data(),baseline.size());
+    for(unsigned c=0;c<4;++c){
+        Voice cv,cs;
+        cv.render(colour_word(full,c),a.data(),a.size());
+        cs.render(colour_word(full,c),b.data(),37);
+        cs.render(colour_word(full,c),b.data()+37,b.size()-37);
+        check(a==b,"colour partition");
+        check(c?a!=baseline:a==baseline,"colour neutral or distinct");
+        for(auto sample:a)check(sample>=-24192&&sample<=24192,"colour headroom");
+        cv.render(0,a.data(),a.size());
+        for(unsigned i=768;i<a.size();++i)check(a[i]==0,"colour release");
+    }
+    Voice moving_colour,split_colour;
+    for(unsigned pos=0;pos<a.size();pos+=120){
+        const auto cw=colour_word(full,(pos/120)%4);
+        moving_colour.render(cw,a.data()+pos,120);
+        split_colour.render(cw,b.data()+pos,37);
+        split_colour.render(cw,b.data()+pos+37,83);
+    }
+    check(a==b,"moving colour partition");
 }
 }
