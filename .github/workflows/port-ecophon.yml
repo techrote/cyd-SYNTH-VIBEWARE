@@ -27,12 +27,16 @@ jobs:
           ./runtime-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror recovery_test.cpp -o recovery-test
           ./recovery-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o gate-test
+          ./gate-test
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined replay.cpp -o replay-san
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime_test.cpp -o runtime-san
           ./replay "sanitized media"
           ./runtime-san
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined recovery_test.cpp -o recovery-san
           ./recovery-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined target_gate_test.cpp -o gate-san
+          ./gate-san
           diff -qr "native media" "sanitized media"
           (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -111,4 +115,35 @@ jobs:
         with:
           name: ecophon-windows
           path: instruments/fm1-ports/ecophon/Ecophon.zip
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and link exact CYD source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio run -e cyd-port-ecophon 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps \( -iname 'LICENSE*' -o -iname 'COPYING*' \) > target-receipts/notice-paths.txt
+          cp .pio/build/cyd-port-ecophon/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-port-ecophon/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ecophon-target-receipts-no-firmware
+          path: instruments/fm1-ports/ecophon/target-receipts/
           if-no-files-found: error
