@@ -1,0 +1,349 @@
+name: Cluster native qualification
+on:
+  pull_request:
+    paths:
+      - 'cluster/**'
+      - '.github/workflows/cluster.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ad6410eca359603195634059cb2e9b2cabc4ec
+          path: platform-contract
+          persist-credentials: false
+      - shell: bash
+        run: |
+          test "$(git -C platform-contract rev-parse HEAD)" = b7ad6410eca359603195634059cb2e9b2cabc4ec
+          test "$(git hash-object platform-contract/platform/dac-lifecycle/clock_sink.hpp)" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+      - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCLUSTER_CLOCK_SINK_INCLUDE="${{ github.workspace }}/platform-contract/platform/dac-lifecycle"
+      - run: cmake --build build/cluster --config Release
+      - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
+      - run: python cluster/checkpoint_capture_test.py
+      - if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir cluster-gallery-linux
+          build/cluster/cluster_checkpoint --gallery cluster-gallery-linux/reaction-gallery
+          build/cluster/cluster_checkpoint --gallery 'linux reaction replay'
+          diff -r cluster-gallery-linux/reaction-gallery 'linux reaction replay'
+          test "$(find cluster-gallery-linux/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
+          printf '%s\n' "$PR_HEAD_SHA" > cluster-gallery-linux/source-pr-head.txt
+          git rev-parse HEAD > cluster-gallery-linux/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > cluster-gallery-linux/source-tree.txt
+          (cd cluster-gallery-linux && sha256sum reaction-gallery/* > gallery.sha256)
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-reaction-gallery-linux
+          path: cluster-gallery-linux/
+          if-no-files-found: error
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkg = 'cluster-package'
+          New-Item -ItemType Directory -Path $pkg | Out-Null
+          Copy-Item build/cluster/Release/cluster_native.exe $pkg
+          Copy-Item build/cluster/Release/cluster_udp.exe $pkg
+          Copy-Item build/cluster/Release/cluster_field.exe $pkg
+          Copy-Item build/cluster/Release/cluster_field_replay.exe $pkg
+          Copy-Item build/cluster/Release/cluster_dual_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_dual_udp.exe $pkg
+          Copy-Item build/cluster/Release/cluster_multi_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_multi_field_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_multi_field.exe $pkg
+          Copy-Item cluster/multi_field_smoke.py $pkg
+          Copy-Item cluster/bench_capture.py $pkg
+          Copy-Item cluster/bench_capture_test.py $pkg
+          Copy-Item cluster/transport_capture.py $pkg
+          Copy-Item cluster/transport_capture_test.py $pkg
+          Copy-Item build/cluster/Release/cluster_bench_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_lan_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_ble_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_multi_udp.exe $pkg
+          Copy-Item cluster/multi_udp_test.py $pkg
+          Copy-Item cluster/dual_udp_test.py $pkg
+          Copy-Item cluster/udp_test.py $pkg
+          Copy-Item cluster/field_udp_smoke.py $pkg
+          & "$pkg/cluster_field_replay.exe" "$pkg/field-demo"
+          if ($LASTEXITCODE -ne 0) { throw 'Field replay/media failed' }
+          & "$pkg/cluster_dual_test.exe" "$pkg/dual-demo.wav"
+          if ($LASTEXITCODE -ne 0) { throw 'Dual replay/media failed' }
+          Copy-Item build/cluster/Release/cluster_spatial.exe $pkg
+          Copy-Item build/cluster/Release/cluster_spatial_bench.exe $pkg
+          Copy-Item build/cluster/Release/cluster_reaction.exe $pkg
+          Copy-Item build/cluster/Release/cluster_reaction_bench.exe $pkg
+          Copy-Item build/cluster/Release/cluster_pairing.exe $pkg
+          Copy-Item cluster/spatial_udp_test.py $pkg
+          Copy-Item cluster/spatial_capture.py $pkg
+          Copy-Item cluster/spatial_capture_test.py $pkg
+          Copy-Item cluster/spatial_view_smoke.py $pkg
+          Copy-Item build/cluster/Release/cluster_reaction_view.exe $pkg
+          Copy-Item build/cluster/Release/cluster_spatial_handoff.exe $pkg
+          Copy-Item build/cluster/Release/cluster_checkpoint.exe $pkg
+          Copy-Item build/cluster/Release/cluster_checkpoint_udp.exe $pkg
+          Copy-Item cluster/checkpoint_udp_test.py $pkg
+          Copy-Item cluster/checkpoint_capture.py $pkg
+          Copy-Item cluster/checkpoint_capture_test.py $pkg
+          & "$pkg/cluster_checkpoint.exe" --gallery "$pkg/reaction-gallery"
+          if ($LASTEXITCODE -ne 0) { throw 'Reaction gallery generation failed' }
+          Copy-Item cluster/README.md $pkg
+          $env:PR_HEAD_SHA | Set-Content -Encoding ascii "$pkg/source-pr-head.txt"
+          git rev-parse HEAD | Set-Content -Encoding ascii "$pkg/source-commit.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Source commit receipt failed' }
+          git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii "$pkg/source-tree.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Source tree receipt failed' }
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'Visual Studio discovery failed' }
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'PE dependency inspector unavailable' }
+          $executables = @(Get-ChildItem $pkg -Filter '*.exe' -File)
+          if ($executables.Count -ne 22) { throw "Unexpected package executable count: $($executables.Count)" }
+          foreach ($exe in $executables) {
+            $imports = (& $dumpbin.FullName /dependents $exe.FullName | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*$') { throw "PE dependency inspection failed: $($exe.Name)" }
+            if ($imports -match '(?im)^\s*(MSVCP\d+[^.\r\n]*|VCRUNTIME\d+[^.\r\n]*|CONCRT\d+[^.\r\n]*|MSVCR\d+[^.\r\n]*|UCRTBASED)\.dll\s*$') { throw "External MSVC runtime import: $($exe.Name)" }
+            Add-Content -Encoding ascii "$pkg/pe-dependencies.txt" $exe.Name
+            Add-Content -Encoding ascii "$pkg/pe-dependencies.txt" $imports
+          }
+          $packageFiles = @(Get-ChildItem $pkg -File -Recurse | Sort-Object FullName)
+          $root = (Resolve-Path $pkg).Path
+          foreach ($file in $packageFiles) {
+            $relative = $file.FullName.Substring($root.Length+1)
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash
+            Add-Content -Encoding ascii "$pkg/files.sha256" "$hash  $relative"
+          }
+          Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip
+          Expand-Archive cluster-native-windows.zip 'extracted cluster'
+          $extracted = (Resolve-Path 'extracted cluster').Path
+          foreach ($entry in Get-Content "$extracted/files.sha256") {
+            if ($entry -notmatch '^([0-9A-Fa-f]{64})  (.+)$') { throw 'Malformed package checksum' }
+            $expected = $Matches[1]
+            $file = Join-Path $extracted $Matches[2]
+            if (-not (Test-Path $file -PathType Leaf)) { throw "Missing extracted file: $file" }
+            if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $expected) { throw "Extracted checksum mismatch: $file" }
+          }
+          & './extracted cluster/cluster_pairing.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted pairing replay failed' }
+          & './extracted cluster/cluster_spatial_bench.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted matched spatial benchmark failed' }
+          & './extracted cluster/cluster_native.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted replay failed' }
+          python './extracted cluster/udp_test.py' './extracted cluster/cluster_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted UDP loopback failed' }
+          & './extracted cluster/cluster_field_replay.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted field replay failed' }
+          & './extracted cluster/cluster_field.exe' --smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI smoke failed' }
+          python './extracted cluster/field_udp_smoke.py' './extracted cluster/cluster_udp.exe' './extracted cluster/cluster_field.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted GDI UDP smoke failed' }
+          & './extracted cluster/cluster_dual_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted dual replay failed' }
+          python './extracted cluster/dual_udp_test.py' './extracted cluster/cluster_dual_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted dual UDP failed' }
+          & './extracted cluster/cluster_multi_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi replay failed' }
+          python './extracted cluster/multi_udp_test.py' './extracted cluster/cluster_multi_udp.exe' './extracted cluster/cluster_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi UDP failed' }
+          & './extracted cluster/cluster_multi_field_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field replay failed' }
+          & './extracted cluster/cluster_multi_field.exe' --smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field GDI smoke failed' }
+          python './extracted cluster/multi_field_smoke.py' './extracted cluster/cluster_udp.exe' './extracted cluster/cluster_multi_field.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted multi field GDI UDP failed' }
+          & './extracted cluster/cluster_bench_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted bench replay failed' }
+          python './extracted cluster/bench_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted bench capture failed' }
+          & './extracted cluster/cluster_lan_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted LAN admission failed' }
+          python './extracted cluster/transport_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted transport capture failed' }
+          & './extracted cluster/cluster_ble_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted BLE control failed' }
+          & './extracted cluster/cluster_spatial.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial replay failed' }
+          python './extracted cluster/spatial_udp_test.py' './extracted cluster/cluster_spatial.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial UDP failed' }
+          & './extracted cluster/cluster_reaction.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction replay failed' }
+          & './extracted cluster/cluster_reaction_bench.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction benchmark failed' }
+          python './extracted cluster/spatial_udp_test.py' './extracted cluster/cluster_reaction.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction UDP failed' }
+          python './extracted cluster/spatial_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial capture failed' }
+          python './extracted cluster/checkpoint_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint capture failed' }
+          & './extracted cluster/cluster_spatial_handoff.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted handoff replay failed' }
+          & './extracted cluster/cluster_reaction_view.exe' --smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI failed' }
+          python './extracted cluster/spatial_view_smoke.py' './extracted cluster/cluster_reaction.exe' './extracted cluster/cluster_reaction_view.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI UDP failed' }
+          python './extracted cluster/spatial_view_smoke.py' './extracted cluster/cluster_checkpoint_udp.exe' './extracted cluster/cluster_reaction_view.exe' checkpoint
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI checkpoint/override failed' }
+          & './extracted cluster/cluster_checkpoint.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint replay failed' }
+          & './extracted cluster/cluster_checkpoint.exe' --gallery 'reaction replay'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction gallery failed' }
+          $gallery = @(Get-ChildItem "$extracted/reaction-gallery" -File)
+          if ($gallery.Count -ne 9) { throw 'Unexpected reaction gallery file count' }
+          foreach ($file in $gallery) {
+            $replay = Join-Path 'reaction replay' $file.Name
+            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $replay -Algorithm SHA256).Hash) {
+              throw "Reaction gallery replay mismatch: $($file.Name)"
+            }
+          }
+          python './extracted cluster/checkpoint_udp_test.py' './extracted cluster/cluster_checkpoint_udp.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint UDP failed' }
+          (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-native-windows
+          path: |
+            cluster-native-windows.zip
+            cluster-native-windows.sha256
+          if-no-files-found: error
+  reaction-gallery-cross-platform:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-reaction-gallery-linux
+          path: linux-gallery
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-native-windows
+          path: windows-package
+      - shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q windows-package/cluster-native-windows.zip -d windows-gallery
+          for receipt in source-pr-head.txt source-commit.txt source-tree.txt; do
+            test -s "linux-gallery/$receipt"
+            test -s "windows-gallery/$receipt"
+            diff "linux-gallery/$receipt" <(tr -d '\r' < "windows-gallery/$receipt")
+          done
+          (cd linux-gallery && sha256sum -c gallery.sha256)
+          test "$(find linux-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
+          test "$(find windows-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 9
+          diff -r linux-gallery/reaction-gallery windows-gallery/reaction-gallery
+          echo 'PASS exact Linux/Windows reaction gallery (eight WAVs and metrics CSV)'
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ad6410eca359603195634059cb2e9b2cabc4ec
+          path: platform-contract
+          persist-credentials: false
+      - shell: bash
+        run: |
+          test "$(git -C platform-contract rev-parse HEAD)" = b7ad6410eca359603195634059cb2e9b2cabc4ec
+          test "$(git hash-object platform-contract/platform/dac-lifecycle/clock_sink.hpp)" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -fsanitize=address,undefined -fno-sanitize-recover=all -Iplatform-contract/platform/dac-lifecycle cluster/reaction_producer_test.cpp -o producer_sanitized
+      - run: ./producer_sanitized
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/native.cpp -o cluster_sanitized
+      - run: ./cluster_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/field_replay.cpp -o field_sanitized
+      - run: ./field_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/dual_test.cpp -o dual_sanitized
+      - run: ./dual_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/multi_test.cpp -o multi_sanitized
+      - run: ./multi_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/multi_field_test.cpp -o multi_field_sanitized
+      - run: ./multi_field_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/bench_test.cpp -o bench_sanitized
+      - run: ./bench_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/lan_test.cpp -o lan_sanitized
+      - run: ./lan_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/ble_control_test.cpp -o ble_sanitized
+      - run: ./ble_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_native.cpp -o spatial_sanitized
+      - run: ./spatial_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_bench.cpp -o spatial_bench_sanitized
+      - run: ./spatial_bench_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -DCLUSTER_SPATIAL_REACTION=1 -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_native.cpp -o reaction_sanitized
+      - run: ./reaction_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_handoff_test.cpp -o handoff_sanitized
+      - run: ./handoff_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/checkpoint_test.cpp -o checkpoint_sanitized
+      - run: ./checkpoint_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/checkpoint_udp.cpp -o checkpoint_udp_sanitized
+      - run: python cluster/checkpoint_udp_test.py ./checkpoint_udp_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1

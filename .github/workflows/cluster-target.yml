@@ -1,0 +1,47 @@
+name: Cluster ESP-NOW target builds
+on:
+  pull_request:
+    paths:
+      - 'cluster/**'
+      - '.github/workflows/cluster-target.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field, cyd-dual, cyd-multi, cyd-multi-field, cyd-multi-field-bench, cyd-lan, s3-lan-worker, c3-lan-worker, cyd-ble-field, s3-ble-client, c3-ble-client, cyd-spatial, s3-spatial-worker, c3-spatial-worker, cyd-reaction, s3-reaction-worker, c3-reaction-worker, cyd-reaction-checkpoint, s3-reaction-checkpoint, c3-reaction-checkpoint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18
+      - run: pio run -d cluster/firmware -e ${{ matrix.profile }}
+      - name: Record build evidence (no flash)
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile='${{ matrix.profile }}'
+          src="cluster/firmware/.pio/build/$profile"
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-commit.txt
+          git rev-parse HEAD^{tree} > evidence/source-tree.txt
+          pio pkg list -d cluster/firmware -e "$profile" > evidence/packages.txt
+          cp "$src/firmware.elf" "$src/firmware.bin" "$src/firmware.map" evidence/
+          printf '%s\n' "$profile" > evidence/profile.txt
+          if [ -d "cluster/firmware/.pio/libdeps/$profile" ]; then
+            mkdir -p evidence/dependency-notices
+            cd "cluster/firmware/.pio/libdeps/$profile"
+            find . -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' \) -exec cp --parents '{}' "$GITHUB_WORKSPACE/evidence/dependency-notices/" \;
+            cd "$GITHUB_WORKSPACE"
+          fi
+          (cd evidence && sha256sum firmware.elf firmware.bin firmware.map > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-target-${{ matrix.profile }}-UNAPPROVED
+          path: evidence/
+          if-no-files-found: error
