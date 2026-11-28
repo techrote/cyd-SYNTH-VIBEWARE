@@ -1,0 +1,161 @@
+name: PORT Xenoresonator author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/xenoresonator/**'
+      - '.github/workflows/port-xenoresonator.yml'
+      - 'integration/package_gate.py'
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/xenoresonator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: |
+          mkdir media
+          g++ -std=c++17 -O2 -Wall -Wextra replay.cpp -o replay
+          ./replay media
+          clang++ -std=c++17 -O1 -g -fsanitize=address,undefined replay.cpp -o replay-san
+          ./replay-san
+          sha256sum media/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-media
+          path: instruments/fm1-ports/xenoresonator/media/
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/xenoresonator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'owner package' | Out-Null
+          git rev-parse HEAD | Set-Content -Encoding ascii 'owner package/source-commit.txt'
+          if ($LASTEXITCODE -ne 0) {throw 'Source commit receipt failed'}
+          git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii 'owner package/source-tree.txt'
+          if ($LASTEXITCODE -ne 0) {throw 'Source tree receipt failed'}
+      - shell: msys2 {0}
+        run: |
+          mkdir -p "owner package/media"
+          g++ -std=c++17 -O2 replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 windows.cpp -o "owner package/Xenoresonator.exe" -lwinmm -lgdi32 -luser32 -static
+          cp README.md "owner package/"
+          cp core.hpp exchange.hpp replay.cpp windows.cpp "owner package/"
+          "owner package/replay.exe" "owner package/media"
+          (cd "owner package" && sha256sum *.exe media/* README.md core.hpp exchange.hpp replay.cpp windows.cpp source-commit.txt source-tree.txt > SHA256SUMS.txt)
+      - shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath Xenoresonator.zip
+          Expand-Archive Xenoresonator.zip -DestinationPath "extracted audition"
+          python ../../../integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) {throw 'Package gate selftest failed'}
+          python ../../../integration/package_gate.py verify "extracted audition"
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted package gate failed'}
+          & "./extracted audition/replay.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./extracted audition/Xenoresonator.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $expectedCommit = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) {throw 'Commit lookup failed'}
+          $expectedTree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) {throw 'Tree lookup failed'}
+          if ((Get-Content 'extracted audition/source-commit.txt' -Raw).Trim() -ne $expectedCommit) {throw 'Extracted source commit mismatch'}
+          if ((Get-Content 'extracted audition/source-tree.txt' -Raw).Trim() -ne $expectedTree) {throw 'Extracted source tree mismatch'}
+          (Get-FileHash Xenoresonator.zip -Algorithm SHA256).Hash | Set-Content -Encoding ascii Xenoresonator.sha256
+      - shell: msys2 {0}
+        run: |
+          cd 'extracted audition'
+          sha256sum -c SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-windows
+          path: |
+            instruments/fm1-ports/xenoresonator/Xenoresonator.zip
+            instruments/fm1-ports/xenoresonator/Xenoresonator.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Isolate PlatformIO package state
+        run: echo "PLATFORMIO_CORE_DIR=$RUNNER_TEMP/pio-xenoresonator" >> "$GITHUB_ENV"
+      - name: Bootstrap pinned target host dependencies
+        run: |
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          python -c 'from intelhex import IntelHex; from importlib.metadata import version; assert version("intelhex") == "2.3.0"'
+      - run: python -m platformio run -d instruments/fm1-ports/xenoresonator
+      - env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          cd instruments/fm1-ports/xenoresonator
+          mkdir -p target-receipts
+          git rev-parse HEAD > target-receipts/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > target-receipts/source-tree.txt
+          test "$(cat target-receipts/source-commit.txt)" = "$EXPECTED_HEAD"
+          cp .pio/build/cyd-port-xeno/firmware.map target-receipts/
+          test -s target-receipts/firmware.map
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -iname 'LICENSE*' -o -iname 'COPYING*' > target-receipts/notice-paths.txt
+          sha256sum .pio/build/cyd-port-xeno/firmware.elf > target-receipts/elf.sha256
+          (cd target-receipts && sha256sum source-commit.txt source-tree.txt firmware.map packages.txt notice-paths.txt elf.sha256 > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-target-receipts-no-firmware
+          path: instruments/fm1-ports/xenoresonator/target-receipts/
+          if-no-files-found: error
+
+  cross-environment-media:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-media
+          path: linux-media
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-windows
+          path: windows-package
+      - name: Enforce exact Linux and Windows media identity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          expected = {f'{kind}-{i}.{ext}' for kind in ('material', 'rake') for i in range(4) for ext in ('wav', 'ppm')}
+          linux = Path('linux-media')
+          if {p.name for p in linux.iterdir() if p.is_file()} != expected:
+              raise SystemExit('Unexpected Linux media inventory')
+          with ZipFile('windows-package/Xenoresonator.zip') as archive:
+              names = [n for n in archive.namelist() if n.startswith('media/') and not n.endswith('/')]
+              if sorted(names) != sorted('media/' + n for n in expected):
+                  raise SystemExit('Unexpected Windows media inventory')
+              differing = [n for n in sorted(expected) if (linux / n).read_bytes() != archive.read('media/' + n)]
+          if differing:
+              raise SystemExit('Cross-environment byte identity FAIL: ' + ', '.join(differing))
+          print('PASS: all 16 Linux/Windows media files byte-identical')
+          PY

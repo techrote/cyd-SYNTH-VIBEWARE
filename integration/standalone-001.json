@@ -1,0 +1,262 @@
+{
+  "schema": 8,
+  "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
+  "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
+  "predecessor": {
+    "head": "f5018bbda1641ae547a2b1931fbbf508df17ccdd",
+    "tree": "cb2adb29baafd3b917cc885156d2340557f1c62a",
+    "author_integration_runs": [
+      46112578478,
+      46112578493,
+      46112578487
+    ],
+    "windows_artifacts": [
+      15249913734,
+      15250960010,
+      15250151979
+    ],
+    "target_artifacts": [
+      15249923809,
+      15249997803,
+      15250426688
+    ],
+    "independent_target_qa": {
+      "run": 46113931111,
+      "phase": "PASS compile/link",
+      "xeno": "FAIL missing intelhex in shared PlatformIO environment",
+      "grid": "NOT RUN"
+    },
+    "disposition": "preserve all frozen pins"
+  },
+  "sources": [
+    {
+      "pr": 11,
+      "head": "072ede0c2909836f90639d2112ea3786d770795d",
+      "tree": "0b1e4ec39cdd50ecfc7b8105c7daf4c9f7cdd52a",
+      "path": "instruments/phasespace/",
+      "author_run": 46103776403
+    },
+    {
+      "pr": 14,
+      "head": "7620dacd6e6d68adeb65bf032d3d06ab9bb32948",
+      "tree": "493d6a57f2a190ef400edfb19e8638ac648086fd",
+      "path": "instruments/fm1-ports/xenoresonator/",
+      "author_run": 46107431719
+    },
+    {
+      "pr": 18,
+      "head": "c0a866a71ecf0a6be958a04f9870b92d0a7fe069",
+      "tree": "38ef03e00867b92a0b187ad19888057ce9383630",
+      "path": "instruments/chronogrid/",
+      "author_run": 46121977986,
+      "independent_native_qa": {
+        "head": "bfe254ad2786ecf1644d849071923f4e16a257a9",
+        "checks_each": 2891648,
+        "media_exact": 21
+      },
+      "independent_windows_qa": {
+        "run": 46122895469,
+        "job": 140911044205,
+        "archive": 15253554975,
+        "inner_sha256": "9aaa56b8a40709cb288f72bbaaf886b6e64c2f384c510b6531be9bf2c027eaa9",
+        "result": "PASS extracted and clean rebuild at exact author pin; not new cumulative head"
+      },
+      "target": "Author and independent exact M4 source compile/link PASS, QA batch007 target job 140924829969"
+    },
+    {
+      "pr": 19,
+      "head": "e57f1bc20de0924ec976ff6abce7b5cae903f1a2",
+      "tree": "f4bfd8ca1acde6be053c7a2a08e53a857d9f86eb",
+      "path": "instruments/fm1-ports/chronomorph/",
+      "author_run": 46125662215,
+      "author_jobs_passed": 3,
+      "windows_artifact": 15254564233,
+      "target_artifact": 15255493687,
+      "independent_qa": "Batch007 author M4 Windows archive extracted and clean rebuilt PASS, 1764 panic positions zero failures; integrated Windows packaging repair still pending"
+    },
+    {
+      "pr": 20,
+      "head": "9a314395eac5bf577192bbdb3a58fb7cc628cf22",
+      "tree": "6098ecf645cb898cab3b157d5a3daa5a9ce383f9",
+      "path": "instruments/xenobio/",
+      "author_run": 46141001982,
+      "author_jobs_passed": 2,
+      "windows_artifact": 15260959010,
+      "target_artifact": 15261688786,
+      "independent_qa": {
+        "head": "1481a84103299cdc33d5c43c8af1d34a3acecd99",
+        "run": 46142097509,
+        "windows_job": 140970066930,
+        "target_job": 140970067163,
+        "target_artifact": 15261942720,
+        "result": "PASS exact author source and extracted Windows replay/GDI, clean rebuild, 15 media exact, modeled queue 22 schedules and 1001 epochs, independent target compile/link; no driver playback or physical qualification"
+      },
+      "integration_local": {
+        "result": "GCC Release CMake CTest 2/2, all 15 media byte exact; recovered outer and inner digest, 36 manifest entries, 14 source blobs verified against author Git identities",
+        "outer_sha256": "ef262de8e063948dca74650fa5284f5c6cb8d5a274b96650557c87e15cc2fdd2",
+        "inner_sha256": "452079bd55b0f0923350efd44bbf127058b72458553e709c9a6e440d20f9136c"
+      }
+    }
+  ],
+  "workflow_overrides": [
+    ".github/workflows/phasespace.yml",
+    ".github/workflows/port-xenoresonator.yml",
+    ".github/workflows/chronogrid.yml",
+    ".github/workflows/port-chronomorph.yml",
+    ".github/workflows/xenobio.yml"
+  ],
+  "integration_gate": "PENDING_FIVE_INSTRUMENT_EXACT_HEAD_CI",
+  "physical_gate": "HOLD",
+  "qa_gate": "FROZEN_INDEPENDENT_AUTHOR_M4R_WINDOWS_AND_TARGET_PASS; NEW_CUMULATIVE_HEAD_PENDING",
+  "owner_gate": "HOLD",
+  "changed_source_paths": [],
+  "repairs": [
+    "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence",
+    "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair.",
+    "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow.",
+    "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending.",
+    "Checkpoint 007: accept exactly GNU text and binary markers in Chronomorph extracted SHA256SUMS parser. Exercise two positive and five negative format fixtures in the same PowerShell step; retain path, duplicate, hash and completeness gates. JS-equivalent regex fixtures passed; actual PowerShell execution pending Windows CI.",
+    "Intermediate workflow-generation commit 110814fb truncated PowerShell text because JS String.replace interpreted regex anchor followed by quote as a replacement token; no Chronomorph jobs executed in failed workflow 46130598134. Corrected using literal callback replacement with exact roundtrip and stored-blob readback; no changes to runtime or qualification gates.",
+    "Checkpoint010: integrate exact XENOBIO M4R source, retaining independent author lineage and previous standalone apps. Add Linux native and sanitizer replay, pre-execution complete extracted payload coverage using existing integration gate, explicit IntelHex dependency, isolated PIO, nonempty map and target checksum manifest. New workflow execution pending."
+  ],
+  "prior_receipts": {
+    "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
+    "m3_qa_run": 46104942985,
+    "m3_windows_artifacts": [
+      15246432643,
+      15246670783
+    ],
+    "qa_batch003_head": "1509096984bbdecef3943b808f700376686ee5ab"
+  },
+  "previous_checkpoint": {
+    "head": "724d4d2251d9f190e1c412432594239ccd8325fd",
+    "tree": "3a283affa72cff41b00c8a2d6a1ccd72b2f5394f",
+    "author_integration_runs": [
+      46108123155,
+      46108123157
+    ],
+    "windows_artifacts": [
+      15248417526,
+      15248387458
+    ],
+    "independent_qa_run": 46109559756,
+    "disposition": "preserve M4 and prior M3 pins; no substitution"
+  },
+  "checkpoint004": {
+    "head": "ed61c3d0bde350703c16c791ef1d07056fc45552",
+    "tree": "29c8eede7e4962d5e45867a77840f415c5477cf1",
+    "author_integration_runs": [
+      46117111430,
+      46117111434,
+      46117111378
+    ],
+    "jobs_passed": 11,
+    "windows_artifacts": [
+      15252595070,
+      15251423308,
+      15252207682
+    ],
+    "target_artifacts": [
+      15251907244,
+      15251534715,
+      15252277650
+    ],
+    "artifact_verification": "GitHub metadata/digests and successful jobs; not independent extracted archive verification"
+  },
+  "independent_target_recovery": {
+    "qa_head": "a50080a29c1fef7a69d3d0bc475c4c01934e94b2",
+    "run": 46118660237,
+    "job": 140898051626,
+    "artifact": 15252966833,
+    "digest": "sha256:927523a19d0b03850a635b73081570a70c17b810420f4ea6abfe2141de0eaad3",
+    "result": "PASS all three compile/link and receipt manifests; actual job log inspected",
+    "source_pins": {
+      "phase_xeno": "724d4d2251d9f190e1c412432594239ccd8325fd",
+      "grid": "153e6bbd563242c9bc8bbeda47d1e40158877d41"
+    },
+    "limitation": "Older frozen M4/M4/M1 sources, not M2/M3 cumulative integration or physical execution"
+  },
+  "checkpoint005": {
+    "head": "7138c7769e2c8c25ae519eca4485f15bd697aaf9",
+    "tree": "7b9353946ad7527c44ea0e2a9bd455b9a8fd2a88",
+    "author_integration_runs": [
+      46121560404,
+      46121560329,
+      46121560314
+    ],
+    "jobs_passed": 11,
+    "windows_artifacts": [
+      15253913164,
+      15254206319,
+      15254191607
+    ],
+    "target_artifacts": [
+      15253833300,
+      15253953106,
+      15254251090
+    ],
+    "artifact_verification": "GitHub metadata/digests and job conclusions; not direct archive extraction"
+  },
+  "checkpoint006": {
+    "head": "775d9397b11f944344d1aefaf216c6451b994d36",
+    "tree": "7f6a85590f2f733e6f7373068bfd58e6405f7352",
+    "author_integration_runs": [
+      46126200767,
+      46126200823,
+      46126200770,
+      46126200808
+    ],
+    "jobs_passed": 13,
+    "jobs_failed": 1,
+    "failed_job": 140921228930,
+    "failed_gate": "Chronomorph extracted manifest parser rejects GNU sha256sum binary marker; pre-extraction core and runtime tests passed; no integrated Windows artifact",
+    "windows_artifacts": [
+      15255549321,
+      15255906681,
+      15256150052
+    ],
+    "target_artifacts": [
+      15255727397,
+      15255623020,
+      15255084407,
+      15255951741
+    ],
+    "independent_qa": {
+      "head": "ed676b0909c44159bdd4221565a987dbe8d196ca",
+      "run": 46127366662,
+      "windows_job": 140924829763,
+      "target_job": 140924829969,
+      "chrono_author_archive": 15254564233,
+      "chrono_inner_sha256": "2f09e4b52f559d53997eb7d328b6921a1f3a53c406c6955a10bbc54e70d6b6be",
+      "panic_matrix_positions": 1764,
+      "panic_matrix_failures": 0,
+      "target_artifact": 15255964310,
+      "target_result": "all four compile/link PASS at frozen integrated 775d9397 and author Grid c0a866a7; not physical qualification",
+      "limitation": "independent Windows replay of author Chronomorph archive, not failed integrated archive; source unchanged in repair"
+    }
+  },
+  "checkpoint009": {
+    "head": "0803ee552ec3a60da7dfeb405d31fa846c07a74a",
+    "tree": "f558cc90a770694b06ea18c0e043f6862f323b81",
+    "author_integration_runs": [
+      46139982400,
+      46139982394,
+      46139982408,
+      46139982424
+    ],
+    "jobs_passed": 14,
+    "windows_artifacts": [
+      15261372541,
+      15261412514,
+      15261532097,
+      15261735865
+    ],
+    "target_artifacts": [
+      15261052488,
+      15261412616,
+      15261765816,
+      15260749801
+    ],
+    "artifact_verification": "GitHub metadata/digests and successful jobs; not independent extracted archive verification"
+  }
+}

@@ -1,0 +1,160 @@
+name: PORT Ecophon author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/ecophon/**'
+      - '.github/workflows/port-ecophon.yml'
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Actual native replay and sanitizers
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime-test
+          ./replay "native media"
+          ./runtime-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror recovery_test.cpp -o recovery-test
+          ./recovery-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o gate-test
+          ./gate-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror sample_sink_test.cpp -o sink-test
+          ./sink-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined replay.cpp -o replay-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime_test.cpp -o runtime-san
+          ./replay-san "sanitized media"
+          ./runtime-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined recovery_test.cpp -o recovery-san
+          ./recovery-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined target_gate_test.cpp -o gate-san
+          ./gate-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined sample_sink_test.cpp -o sink-san
+          ./sink-san
+          diff -qr "native media" "sanitized media"
+          (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecophon-native-Linux
+          path: |
+            instruments/fm1-ports/ecophon/native media/
+            instruments/fm1-ports/ecophon/SHA256SUMS.txt
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+      - name: Build and generate actual media
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o "owner package/runtime-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror recovery_test.cpp -o "owner package/recovery-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o "owner package/Ecophon.exe" -pthread -lwinmm -lgdi32 -luser32 -static
+          cp core.hpp runtime.hpp replay.cpp runtime_test.cpp recovery_test.cpp windows.cpp target_gate.hpp target_gate_test.cpp sample_sink.hpp sample_sink_test.cpp README.md M2.md WINDOWS.md M2R.md M3.md M4.md "owner package/"
+          g++ --version > "owner package/TOOLCHAIN.txt"
+          objdump -p "owner package/Ecophon.exe" | grep 'DLL Name:' > "owner package/IMPORTS.txt"
+          if grep -Ei 'DLL Name: (libgcc|libstdc\+\+|libwinpthread)' "owner package/IMPORTS.txt"; then exit 1; fi
+          "owner package/replay.exe" "owner package/media"
+          "owner package/runtime-test.exe"
+          "owner package/recovery-test.exe"
+          (cd "owner package" && sha256sum *.exe *.hpp *.cpp *.md SOURCE.txt TOOLCHAIN.txt IMPORTS.txt media/* > SHA256SUMS.txt)
+      - name: Extract, verify, replay and execute graphical candidate
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath Ecophon.zip
+          Expand-Archive Ecophon.zip -DestinationPath "extracted audition"
+          $root = (Resolve-Path "extracted audition").Path
+          python ../../../integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) { throw "Package gate selftest failed" }
+          python ../../../integration/package_gate.py verify "$root"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted package verification failed" }
+          & "$root/replay.exe" "$root/regenerated media"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$root/runtime-test.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$root/recovery-test.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($f in Get-ChildItem "$root/media" -File) {
+            if ((Get-FileHash (Join-Path "$root/regenerated media" $f.Name)).Hash -ne (Get-FileHash $f.FullName).Hash) { throw "Replay mismatch: $($f.Name)" }
+          }
+          $proc = Start-Process -FilePath "$root/Ecophon.exe" -ArgumentList '--smoke' -PassThru -NoNewWindow -RedirectStandardOutput "graphical-stdout.txt" -RedirectStandardError "graphical-stderr.txt"
+          if (-not $proc.WaitForExit(20000)) { $proc.Kill(); throw "Graphical replay timeout" }
+          Get-Content "graphical-stdout.txt", "graphical-stderr.txt"
+          if ($proc.ExitCode -ne 0) { throw "Graphical replay failed: $($proc.ExitCode)" }
+          Get-FileHash Ecophon.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecophon-windows
+          path: instruments/fm1-ports/ecophon/Ecophon.zip
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and link exact CYD source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio run -e cyd-port-ecophon 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps \( -iname 'LICENSE*' -o -iname 'COPYING*' \) > target-receipts/notice-paths.txt
+          cp .pio/build/cyd-port-ecophon/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-port-ecophon/firmware.elf > target-receipts/elf.sha256
+          pio run -e cyd-port-ecophon-timer 2>&1 | tee target-receipts/timer-build.log
+          cp .pio/build/cyd-port-ecophon-timer/firmware.map target-receipts/timer-firmware.map
+          sha256sum .pio/build/cyd-port-ecophon-timer/firmware.elf > target-receipts/timer-elf.sha256
+          pio pkg list > target-receipts/packages.txt
+          test -s target-receipts/firmware.map && test -s target-receipts/timer-firmware.map
+          (cd target-receipts && sha256sum *.map *.log *.txt *.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ecophon-target-receipts-no-firmware
+          path: instruments/fm1-ports/ecophon/target-receipts/
+          if-no-files-found: error
