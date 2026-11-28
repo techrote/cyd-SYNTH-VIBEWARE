@@ -124,3 +124,38 @@ jobs:
           name: port-xeno-target-receipts-no-firmware
           path: instruments/fm1-ports/xenoresonator/target-receipts/
           if-no-files-found: error
+
+  cross-environment-media:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-media
+          path: linux-media
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-windows
+          path: windows-package
+      - name: Enforce exact Linux and Windows media identity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          expected = {f'{kind}-{i}.{ext}' for kind in ('material', 'rake') for i in range(4) for ext in ('wav', 'ppm')}
+          linux = Path('linux-media')
+          if {p.name for p in linux.iterdir() if p.is_file()} != expected:
+              raise SystemExit('Unexpected Linux media inventory')
+          with ZipFile('windows-package/Xenoresonator.zip') as archive:
+              names = [n for n in archive.namelist() if n.startswith('media/') and not n.endswith('/')]
+              if sorted(names) != sorted('media/' + n for n in expected):
+                  raise SystemExit('Unexpected Windows media inventory')
+              differing = [n for n in sorted(expected) if (linux / n).read_bytes() != archive.read('media/' + n)]
+          if differing:
+              raise SystemExit('Cross-environment byte identity FAIL: ' + ', '.join(differing))
+          print('PASS: all 16 Linux/Windows media files byte-identical')
+          PY

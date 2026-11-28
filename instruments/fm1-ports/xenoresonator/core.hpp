@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdint>
 namespace portx {
+// Evaluate control-rate sine in double, then round once to binary32.
+// Avoid platform-specific sinf differences in tuning and strike coefficients.
+inline float control_sine(float a){return float(std::sin(double(a)));}
 constexpr int rate=24000, width=320, height=240;
 struct Material { const char* name; std::array<float,3> ratio; float decay; };
 inline constexpr Material materials[]={{"Ceramic",{1,2.71f,4.08f},1.1f},{"Woodglass",{1,1.49f,2.42f},.45f},{"Alien metal",{1,2.19f,3.87f},1.6f},{"Membrane",{1,1.59f,2.14f},.7f}};
@@ -13,10 +16,10 @@ class Engine {
   std::array<Mode,6> m{}; unsigned mat=0,x=160,y=90,note=12; bool coupled=true,held=false,contact=false,rake=false,awaitingRelease=false; unsigned lease=0,cooldown=0,lastStrikeX=160; float damp=.999f,mix=0,dc=0;
   void tune(){
     const float base=110.f*std::pow(2.f,float(note)/12.f);
-    for(unsigned i=0;i<6;++i){float f=base*materials[mat].ratio[i%3]*(i<3?1.f:1.013f);float w=6.28318530718f*f/rate;m[i].c=std::cos(w);m[i].s=std::sin(w);}
+    for(unsigned i=0;i<6;++i){float f=base*materials[mat].ratio[i%3]*(i<3?1.f:1.013f);float w=6.28318530718f*f/rate;m[i].c=std::cos(w);m[i].s=control_sine(w);}
   }
   void controls(){damp=std::exp(-1.f/(rate*materials[mat].decay*(.12f+1.2f*float(183-y)/183.f)*(held?1.f:.58f)));mix=coupled?(.00008f+.0008f*float(x)/319.f):0.f;}
-  void strike(float strength=.38f){for(unsigned i=0;i<3;++i){float pos=float(x+1)/321.f;float g=strength*std::abs(std::sin(3.14159265f*pos*float(i+1)))/(1.f+.3f*i);m[i].a=std::clamp(m[i].a+g,-1.f,1.f);m[i].b=std::clamp(m[i].b,-1.f,1.f);}}
+  void strike(float strength=.38f){for(unsigned i=0;i<3;++i){float pos=float(x+1)/321.f;float g=strength*std::abs(control_sine(3.14159265f*pos*float(i+1)))/(1.f+.3f*i);m[i].a=std::clamp(m[i].a+g,-1.f,1.f);m[i].b=std::clamp(m[i].b,-1.f,1.f);}}
  public:
   Engine(){tune();controls();}
   void panic(){for(auto& v:m){v.a=v.b=0;}dc=0;held=false;lease=0;cooldown=0;awaitingRelease=contact||awaitingRelease;controls();}
