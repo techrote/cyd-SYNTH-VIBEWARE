@@ -1,0 +1,168 @@
+name: PORT Grimoire author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/grimoire/**'
+      - '.github/workflows/port-grimoire.yml'
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/grimoire
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Actual native and sanitizer replay
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay
+          ./replay "native media"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror strip_test.cpp -o strip-test
+          ./strip-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror touch_test.cpp -o touch-test
+          ./touch-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror panel_test.cpp -o panel-test
+          ./panel-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all replay.cpp -o replay-san
+          ./replay-san "sanitized media"
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all strip_test.cpp -o strip-san
+          ./strip-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all touch_test.cpp -o touch-san
+          ./touch-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all panel_test.cpp -o panel-san
+          ./panel-san
+          git fetch --no-tags --depth=1 origin b7ad6410eca359603195634059cb2e9b2cabc4ec
+          git show b7ad6410eca359603195634059cb2e9b2cabc4ec:platform/dac-lifecycle/clock_sink.hpp > "$RUNNER_TEMP/clock_sink.hpp"
+          test "$(git hash-object "$RUNNER_TEMP/clock_sink.hpp")" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-test
+          ./audio-owner-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-san
+          ./audio-owner-san
+          diff -qr "native media" "sanitized media"
+          (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grimoire-native-Linux
+          path: |
+            instruments/fm1-ports/grimoire/native media/
+            instruments/fm1-ports/grimoire/SHA256SUMS.txt
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/grimoire
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc diffutils
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+          $pin = 'b7ad6410eca359603195634059cb2e9b2cabc4ec'
+          $blob = '0cc9887b6325cf79b414d5ef026c4c20946bfbf8'
+          git fetch --no-tags --depth=1 origin $pin
+          if ($LASTEXITCODE -ne 0) { throw "Cannot fetch P14 source" }
+          $archive = Join-Path $env:RUNNER_TEMP 'grimoire-p14.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'grimoire P14 source'
+          git archive --format=zip "--output=$archive" $pin platform/dac-lifecycle/clock_sink.hpp
+          if ($LASTEXITCODE -ne 0) { throw "Cannot export P14 source" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $header = Join-Path $extract 'platform/dac-lifecycle/clock_sink.hpp'
+          $actual = git hash-object --no-filters $header
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $blob) { throw "Wrong P14 source blob" }
+          Copy-Item -LiteralPath $header -Destination 'owner package/clock_sink.hpp'
+          @($pin, $blob, 'platform/dac-lifecycle/clock_sink.hpp') | Set-Content -Encoding ascii 'owner package/P14-SOURCE.txt'
+      - name: Build exact source and stage
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o "owner package/Grimoire.exe" -lwinmm -lgdi32 -luser32 -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror strip_test.cpp -o "owner package/strip-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror touch_test.cpp -o "owner package/touch-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror panel_test.cpp -o "owner package/panel-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "owner package" audio_owner_test.cpp -o "owner package/audio-owner-test.exe" -static
+          cp core.hpp strip.hpp touch.hpp panel.hpp audio_owner.hpp replay.cpp strip_test.cpp touch_test.cpp panel_test.cpp audio_owner_test.cpp windows.cpp README.md M2.md M3.md M4.md M5.md M5R.md "owner package/"
+          g++ --version > "owner package/TOOLCHAIN.txt"
+          objdump -p "owner package/Grimoire.exe" | grep 'DLL Name:' > "owner package/IMPORTS.txt"
+          objdump -p "owner package/audio-owner-test.exe" | grep 'DLL Name:' > "owner package/AUDIO-OWNER-IMPORTS.txt"
+          if grep -Ei 'DLL Name: (libgcc|libstdc\+\+|libwinpthread)' "owner package/IMPORTS.txt" "owner package/AUDIO-OWNER-IMPORTS.txt"; then exit 1; fi
+          "owner package/replay.exe" "owner package/media"
+          (cd "owner package" && sha256sum *.exe *.hpp *.cpp *.md SOURCE.txt P14-SOURCE.txt TOOLCHAIN.txt IMPORTS.txt AUDIO-OWNER-IMPORTS.txt media/* > SHA256SUMS.txt)
+      - name: Archive and extract in spaced path
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'owner package/*' -DestinationPath 'Grimoire-Windows.zip'
+          Expand-Archive -Path 'Grimoire-Windows.zip' -DestinationPath 'fresh extracted package'
+          (Get-FileHash -Algorithm SHA256 'Grimoire-Windows.zip').Hash | Set-Content 'Grimoire-Windows.sha256'
+      - name: Verify extracted package and actual graphical replay
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "fresh extracted package"
+          sha256sum -c SHA256SUMS.txt
+          ./replay.exe "reproduced media"
+          diff -qr media "reproduced media"
+          ./strip-test.exe
+          ./touch-test.exe
+          ./panel-test.exe
+          ./audio-owner-test.exe
+          ./Grimoire.exe --smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grimoire-Windows
+          path: |
+            instruments/fm1-ports/grimoire/Grimoire-Windows.zip
+            instruments/fm1-ports/grimoire/Grimoire-Windows.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/grimoire
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and link digital-only CYD front-panel profile
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          cp platformio.ini target-receipts/
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio --version > target-receipts/toolchain.txt
+          pio run -e cyd-grimoire-frontpanel 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > target-receipts/notice-hashes.txt
+          cp .pio/build/cyd-grimoire-frontpanel/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-grimoire-frontpanel/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grimoire-target-frontpanel-receipts-no-firmware
+          path: instruments/fm1-ports/grimoire/target-receipts/
+          if-no-files-found: error
