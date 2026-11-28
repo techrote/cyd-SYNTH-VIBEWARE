@@ -38,6 +38,7 @@ jobs:
           Copy-Item cluster/bench_capture.py $pkg
           Copy-Item cluster/bench_capture_test.py $pkg
           Copy-Item build/cluster/Release/cluster_bench_test.exe $pkg
+          Copy-Item build/cluster/Release/cluster_lan_test.exe $pkg
           Copy-Item build/cluster/Release/cluster_multi_udp.exe $pkg
           Copy-Item cluster/multi_udp_test.py $pkg
           Copy-Item cluster/dual_udp_test.py $pkg
@@ -79,6 +80,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted bench replay failed' }
           python './extracted cluster/bench_capture_test.py'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted bench capture failed' }
+          & './extracted cluster/cluster_lan_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted LAN admission failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -124,6 +127,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/bench_test.cpp -o bench_sanitized
       - run: ./bench_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/lan_test.cpp -o lan_sanitized
+      - run: ./lan_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1
