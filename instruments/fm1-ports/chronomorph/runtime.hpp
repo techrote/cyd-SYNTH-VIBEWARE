@@ -16,7 +16,14 @@ struct Input {
  Ring<Contact,32> q;
  std::atomic<unsigned> fault{0};
  // Producer only, including emergency. Overflow and panic inhibit enqueue until acknowledged.
- bool send(bool down,int x,int y,uint32_t ms){if(fault.load(std::memory_order_acquire))return false;if(q.push({ms,x,y,down}))return true;emergency();return false;}
+ bool send(bool down,int x,int y,uint32_t ms){
+  // Panic is an emergency on every valid contact, even an ongoing drag.
+  // Route through the out-of-band fault so pending controls cannot restart audio.
+  if(down&&x>=280&&x<320&&y>=200&&y<240){emergency();return false;}
+  if(fault.load(std::memory_order_acquire))return false;
+  if(q.push({ms,x,y,down}))return true;
+  emergency();return false;
+ }
  void emergency(){fault.store(1,std::memory_order_release);}
  // Consumer only. Producer cannot enqueue while fault is set.
  bool recover(){if(!fault.load(std::memory_order_acquire))return false;q.discard();fault.store(0,std::memory_order_release);return true;}
