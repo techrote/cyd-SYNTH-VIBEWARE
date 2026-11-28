@@ -17,9 +17,23 @@ static void ppm(const char* path,const sf::Pixels& p){
     check(bool(out),"PPM write failed");
 }
 static void replay(){
-    sf::Field a,b;sf::Receiver rx(91);unsigned checks=0;
+    sf::ActiveField a,b;sf::Receiver rx(91);unsigned checks=0;
+    // Same dimensions and checksum do not authorize a different model.
+    {sf::Field light;sf::ReactionField heavy;check(light.advance()&&heavy.advance(),"variant setup");
+     auto l=sf::encode(91,light),h=sf::encode(91,heavy);
+     sf::Receiver light_rx(91,0),heavy_rx(91,1),unknown(91,2);
+     check(!light_rx.accept(h.data(),h.size(),0)&&!heavy_rx.accept(l.data(),l.size(),0)&&!unknown.accept(h.data(),h.size(),0),"variant mismatch");
+     check(light_rx.accept(l.data(),l.size(),0)&&heavy_rx.accept(h.data(),h.size(),0),"variant admission");checks+=3;}
+#if defined(CLUSTER_SPATIAL_REACTION) && CLUSTER_SPATIAL_REACTION
+    auto previous=a.pixels();unsigned changes=0;uint32_t witness=2166136261u;
+#endif
     for(uint32_t i=1;i<=1000;++i){
         check(a.advance()&&b.advance()&&a.pixels()==b.pixels(),"determinism");++checks;
+        #if defined(CLUSTER_SPATIAL_REACTION) && CLUSTER_SPATIAL_REACTION
+        check(a.bounded()&&b.bounded(),"concentration bounds");++checks;
+        if(i<=512){if(previous!=a.pixels())++changes;previous=a.pixels();
+            witness=sf::checksum(previous.data(),previous.size(),witness);}
+#endif
         auto p=sf::encode(91,a);const auto now=0xffffff00u+i;
         check(rx.accept(p.data(),p.size(),now)&&rx.pixels()==a.pixels(),"snapshot");++checks;
         check(!rx.accept(p.data(),p.size(),now+1),"duplicate");++checks;
@@ -31,6 +45,9 @@ static void replay(){
         check(!rx.accept(p.data(),p.size()-1,now),"truncation accepted");++checks;
         check(rx.fresh(now+sf::lease_ms-1)&&!rx.fresh(now+sf::lease_ms)&&!rx.fresh(now),"lease wrap/resurrection");++checks;
     }
+#if defined(CLUSTER_SPATIAL_REACTION) && CLUSTER_SPATIAL_REACTION
+    check(changes==512&&witness==1979313773u,"reaction trajectory fixture");++checks;
+#endif
     check(a.advance(),"advance");auto p=sf::encode(91,a);
     check(rx.accept(p.data(),p.size(),0),"recover");rx.disconnect();
     check(!rx.fresh(1)&&!rx.accept(p.data(),p.size(),2),"disconnect replay");
@@ -42,7 +59,7 @@ static void replay(){
     std::cout<<"PASS spatial checks="<<checks+325<<" digest="<<sf::digest(a.pixels())<<'\n';
 }
 static void sender(Udp& udp,bool faults){
-    sf::Field f;sf::Packet prior{};
+    sf::ActiveField f;sf::Packet prior{};
     for(unsigned i=1;i<=80;++i){
         check(f.advance(),"advance");auto p=sf::encode(91,f);
         if(!faults||i<20||i>50){
@@ -53,7 +70,7 @@ static void sender(Udp& udp,bool faults){
     }
 }
 static void viewer(Udp& udp,bool faults,const char* path){
-    sf::Field local,reference;sf::Receiver rx(91);
+    sf::ActiveField local,reference;sf::Receiver rx(91);
     unsigned accepted=0,rejected=0,fallback=0,recovered=0,local_paints=0,remote_paints=0;
     std::array<uint16_t,320> row{};uint32_t visual_digest=0;
     bool saw_remote=false,saw_loss=false;

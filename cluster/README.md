@@ -181,3 +181,36 @@ The `meter` output itself incurs serial overhead at boundaries. These windows
 compare actual work rates, not identical states; use the native matched
 benchmark to verify exact algorithm/render equivalence. No audio or one-way
 source-age measurement in this visual profile; no physical results claimed.
+
+## M11 — persistent reaction/diffusion comparison
+
+Opt-in `cyd-reaction`, `s3-reaction-worker`, `c3-reaction-worker` reuse the
+visual-only LAN adapter and its serial provisioning, meter, touch-to-local and
+200 ms arrival-freshness lease. The original spatial builds are unchanged in
+model. A 64x48 two-species Q12 lattice advances four substeps per 50 ms requested
+tick (12,288 cell updates), with periodic deterministic seeding and 2x2
+projection into the same 32x24 indexed snapshot. This is a different visual
+model, not a claim of faster execution or equivalence to the light field.
+The wire header byte 3 now identifies model 0 (old trail field) or 1 (reaction);
+each receiver explicitly admits only its compiled model. Payload remains
+788 bytes; old receivers reject variant 1. No automatic negotiation, no
+cross-model fallback, no cryptographic authentication. Fresh epoch required
+on reset; isolated trusted LAN only.
+
+`cluster_reaction.exe` runs deterministic replay, or the same
+`send|receive own-port peer-port clean|faults output.ppm` syntax as spatial.
+`cluster_reaction_bench.exe` compares exact local/remote states and raster,
+timing compute, encoding, decoding and raster separately. Use the existing
+spatial UDP harness with this executable. Native fixed trajectory fixture
+covers the first 512 snapshots (FNV-1a 1979313773), bounds, model rejection,
+duplicates and lease recovery. Local simulation stays dormant while remote is
+fresh, so switching is not phase-continuous. The heavier fixed tick may
+affect target input latency; physical timing and memory margin NOT RUN.
+
+Measure separate matched radio-off, radio-on local, S3, C3, and outage arms
+using the existing meter. Compare within variant 1 at the same attempted
+rate and frame configuration; do not compare unlike visual quality as a
+speedup. Report executed/deferred steps, actual completed frame rates, heap,
+socket costs, worst-case compute/IO durations and touch behavior. No audio in
+this profile, no flash authorization. Original code, no imported reference
+implementation. M10 package pin remains available for independent QA.

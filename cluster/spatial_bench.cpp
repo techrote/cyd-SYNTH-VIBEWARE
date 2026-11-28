@@ -23,7 +23,7 @@ static void raster(const sf::Pixels& p,Frame& out){
     for(std::size_t y=0;y<240;++y)sf::row(p,y,out.data()+y*320);
 }
 int main(){
-    sf::Field local,worker;sf::Receiver receiver(91);
+    sf::ActiveField local,worker;sf::Receiver receiver(91);
     std::array<uint64_t,steps> compute{},encode{},decode{};
     std::array<uint64_t,frames> local_render{},remote_render{};
     static Frame a{},b{};
@@ -50,6 +50,7 @@ int main(){
             require(a==b);
         }
     }
+    std::cout<<"variant="<<unsigned(sf::ActiveField::variant)<<" field_bytes="<<sizeof(sf::ActiveField)<<'\n';
     std::cout<<"PASS matched snapshots="<<steps<<" frames="<<frames<<" digest="<<digest<<" payload_bytes="<<steps*sf::bytes<<'\n';
     report("local_compute",compute);report("worker_encode",encode);report("receiver_decode",decode);
     report("local_raster",local_render);report("remote_raster",remote_render);

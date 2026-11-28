@@ -17,7 +17,7 @@ constexpr uint16_t port=42002;
 WiFiUDP udp;
 lan::Peer peer{};
 sf::Receiver rx(0);
-sf::Field local;
+sf::ActiveField local;
 bool joined=false,online=false,configured=false,enabled=false;
 uint32_t last_step=0,tx=0,accepted=0,rejected=0,tx_fail=0,compute_max=0,io_max=0;
 uint32_t remote_ticks=0,local_ticks=0;
@@ -189,7 +189,7 @@ void setup(){
 #if CLUSTER_SPATIAL_PANEL
     panel_begin();
 #endif
-    Serial.println("Spatial visual-only; radio off; isolated trusted WPA2 LAN, port 42002");
+    Serial.printf("Spatial visual-only variant=%u field_bytes=%u; radio off; isolated trusted WPA2 LAN, port 42002\n",unsigned(sf::ActiveField::variant),unsigned(sizeof(sf::ActiveField)));
     Serial.println("join <ssidhex> <pskhex>; peer <IPv4> <epoch8>; remote/local/status/meter/reconnect");
 }
 void loop(){

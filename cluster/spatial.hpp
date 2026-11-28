@@ -1,5 +1,6 @@
 #pragma once
 #include "cluster.hpp"
+#include "reaction.hpp"
 
 namespace cluster::spatial {
 // Independent latest-state stream; never use this larger datagram on ESP-NOW.
@@ -16,6 +17,7 @@ class Field {
     Pixels a_{},b_{};
     uint32_t step_=0;
 public:
+    static constexpr uint8_t variant=0;
     const Pixels& pixels()const{return a_;}
     uint32_t sequence()const{return step_;}
     // Persistent integer excitable trails, toroidal advection + diffusion + decay.
@@ -37,9 +39,14 @@ public:
         a_.swap(b_);return true;
     }
 };
-inline Packet encode(uint32_t epoch,const Field& f){
+#if defined(CLUSTER_SPATIAL_REACTION) && CLUSTER_SPATIAL_REACTION
+using ActiveField=ReactionField;
+#else
+using ActiveField=Field;
+#endif
+template<class F> inline Packet encode(uint32_t epoch,const F& f){
     Packet p{};
-    p[0]='S';p[1]='F';p[2]=1;p[3]=0;
+    p[0]='S';p[1]='F';p[2]=1;p[3]=F::variant;
     put32(p.data()+4,epoch);put32(p.data()+8,f.sequence());
     put16(p.data()+12,uint16_t(width));put16(p.data()+14,uint16_t(height));
     for(std::size_t i=0;i<cells;++i)p[prefix+i]=f.pixels()[i];
@@ -49,13 +56,14 @@ inline Packet encode(uint32_t epoch,const Field& f){
 class Receiver {
     uint32_t epoch_,last_=0,at_=0;
     bool live_=false;
+    uint8_t variant_;
     Pixels pixels_{};
 public:
-    explicit Receiver(uint32_t epoch):epoch_(epoch){}
+    explicit Receiver(uint32_t epoch,uint8_t variant=ActiveField::variant):epoch_(epoch),variant_(variant){}
     // Calls belong to one control/render loop. Caller must validate endpoint.
     // FNV is corruption detection, not authentication.
     bool accept(const uint8_t* p,std::size_t n,uint32_t now){
-        if(!p||n!=bytes||!epoch_||p[0]!='S'||p[1]!='F'||p[2]!=1||p[3]||
+        if(!p||n!=bytes||!epoch_||p[0]!='S'||p[1]!='F'||p[2]!=1||variant_>1||p[3]!=variant_||
            get32(p+4)!=epoch_||get16(p+12)!=width||get16(p+14)!=height)return false;
         const auto seq=get32(p+8);
         if(!seq||seq<=last_||get32(p+16)!=checksum(p+prefix,cells,checksum(p,16)))return false;

@@ -53,6 +53,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dual replay/media failed' }
           Copy-Item build/cluster/Release/cluster_spatial.exe $pkg
           Copy-Item build/cluster/Release/cluster_spatial_bench.exe $pkg
+          Copy-Item build/cluster/Release/cluster_reaction.exe $pkg
+          Copy-Item build/cluster/Release/cluster_reaction_bench.exe $pkg
           Copy-Item build/cluster/Release/cluster_pairing.exe $pkg
           Copy-Item cluster/spatial_udp_test.py $pkg
           Copy-Item cluster/README.md $pkg
@@ -66,7 +68,7 @@ jobs:
           $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $dumpbin) { throw 'PE dependency inspector unavailable' }
           $executables = @(Get-ChildItem $pkg -Filter '*.exe' -File)
-          if ($executables.Count -ne 16) { throw "Unexpected package executable count: $($executables.Count)" }
+          if ($executables.Count -ne 18) { throw "Unexpected package executable count: $($executables.Count)" }
           foreach ($exe in $executables) {
             $imports = (& $dumpbin.FullName /dependents $exe.FullName | Out-String)
             if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*$') { throw "PE dependency inspection failed: $($exe.Name)" }
@@ -133,6 +135,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial replay failed' }
           python './extracted cluster/spatial_udp_test.py' './extracted cluster/cluster_spatial.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial UDP failed' }
+          & './extracted cluster/cluster_reaction.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction replay failed' }
+          & './extracted cluster/cluster_reaction_bench.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction benchmark failed' }
+          python './extracted cluster/spatial_udp_test.py' './extracted cluster/cluster_reaction.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction UDP failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -202,6 +210,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_bench.cpp -o spatial_bench_sanitized
       - run: ./spatial_bench_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -DCLUSTER_SPATIAL_REACTION=1 -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_native.cpp -o reaction_sanitized
+      - run: ./reaction_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1
