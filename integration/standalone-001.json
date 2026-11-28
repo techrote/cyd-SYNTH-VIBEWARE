@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
+  "scope": "Standalone applications; no platform or HYBRID adoption",
+  "sources": [
+    {
+      "pr": 11,
+      "head": "0139740e3db44496a779d6629b424397f9f53dfb",
+      "path": "instruments/phasespace",
+      "author_run": 46098869310
+    },
+    {
+      "pr": 14,
+      "head": "b98b177f4bd94ac5883fe5c3daa9ae0184e94b7d",
+      "path": "instruments/fm1-ports/xenoresonator",
+      "author_run": 46101949464
+    }
+  ],
+  "workflow_overrides": [
+    ".github/workflows/phasespace.yml",
+    ".github/workflows/port-xenoresonator.yml"
+  ],
+  "physical_gate": "HOLD",
+  "qa_gate": "PENDING"
+}

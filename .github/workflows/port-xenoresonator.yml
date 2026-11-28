@@ -1,0 +1,99 @@
+name: PORT Xenoresonator author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/xenoresonator/**'
+      - '.github/workflows/port-xenoresonator.yml'
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/xenoresonator
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir media
+          g++ -std=c++17 -O2 -Wall -Wextra replay.cpp -o replay
+          ./replay media
+          clang++ -std=c++17 -O1 -g -fsanitize=address,undefined replay.cpp -o replay-san
+          ./replay-san
+          sha256sum media/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-media
+          path: instruments/fm1-ports/xenoresonator/media/
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/xenoresonator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'owner package' | Out-Null
+          git rev-parse HEAD | Set-Content -Encoding ascii 'owner package/source-commit.txt'
+          if ($LASTEXITCODE -ne 0) {throw 'Source commit receipt failed'}
+          git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii 'owner package/source-tree.txt'
+          if ($LASTEXITCODE -ne 0) {throw 'Source tree receipt failed'}
+      - shell: msys2 {0}
+        run: |
+          mkdir -p "owner package/media"
+          g++ -std=c++17 -O2 replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 windows.cpp -o "owner package/Xenoresonator.exe" -lwinmm -lgdi32 -luser32 -static
+          cp README.md "owner package/"
+          cp core.hpp exchange.hpp replay.cpp windows.cpp "owner package/"
+          "owner package/replay.exe" "owner package/media"
+          (cd "owner package" && sha256sum *.exe media/* README.md core.hpp exchange.hpp replay.cpp windows.cpp source-commit.txt source-tree.txt > SHA256SUMS.txt)
+      - shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath Xenoresonator.zip
+          Expand-Archive Xenoresonator.zip -DestinationPath "extracted audition"
+          & "./extracted audition/replay.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./extracted audition/Xenoresonator.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $expectedCommit = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) {throw 'Commit lookup failed'}
+          $expectedTree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) {throw 'Tree lookup failed'}
+          if ((Get-Content 'extracted audition/source-commit.txt' -Raw).Trim() -ne $expectedCommit) {throw 'Extracted source commit mismatch'}
+          if ((Get-Content 'extracted audition/source-tree.txt' -Raw).Trim() -ne $expectedTree) {throw 'Extracted source tree mismatch'}
+          (Get-FileHash Xenoresonator.zip -Algorithm SHA256).Hash | Set-Content -Encoding ascii Xenoresonator.sha256
+      - shell: msys2 {0}
+        run: |
+          cd 'extracted audition'
+          sha256sum -c SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-windows
+          path: |
+            instruments/fm1-ports/xenoresonator/Xenoresonator.zip
+            instruments/fm1-ports/xenoresonator/Xenoresonator.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install platformio==6.1.18
+      - run: pio run -d instruments/fm1-ports/xenoresonator
+      - run: |
+          cd instruments/fm1-ports/xenoresonator
+          mkdir -p target-receipts
+          find .pio/build -name '*.map' -exec cp {} target-receipts/ \;
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -iname 'LICENSE*' -o -iname 'COPYING*' > target-receipts/notice-paths.txt
+          sha256sum .pio/build/cyd-port-xeno/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: port-xeno-target-receipts-no-firmware
+          path: instruments/fm1-ports/xenoresonator/target-receipts/
