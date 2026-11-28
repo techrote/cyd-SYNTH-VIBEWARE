@@ -40,7 +40,7 @@ static void audio(){
     for(unsigned i=0;i<prepared;++i)waveOutUnprepareHeader(dev,&hdr[i],sizeof(WAVEHDR));
     waveOutClose(dev);
 }
-static void publish(){word.store(surface.c.word(),std::memory_order_release);}
+static void publish(){word.store(surface.c.pack(),std::memory_order_release);}
 static void contact(HWND h,bool down,LPARAM l){
     RECT r{};GetClientRect(h,&r);
     int x=GET_X_LPARAM(l)*320/std::max(1L,r.right);
@@ -61,8 +61,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
         if(smoke){
             surface.touch(ticks<24,int(20+ticks*8),int(25+ticks*3));
             std::array<int16_t,block> b{};
-            for(unsigned i=0;i<6;++i)smokeEngine.render(surface.c.word(),b.data(),b.size(),&points);
-        }else surface.heartbeat();
+            for(unsigned i=0;i<6;++i)smokeEngine.render(surface.c.pack(),b.data(),b.size(),&points);
+        }else {surface.tick(GetTickCount());surface.heartbeat();}
         publish();trace.drain(points);
         InvalidateRect(h,nullptr,FALSE);UpdateWindow(h);
         if(ticks%15==0){

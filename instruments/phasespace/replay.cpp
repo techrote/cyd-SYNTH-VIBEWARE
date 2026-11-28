@@ -6,6 +6,8 @@
 #include <vector>
 #include <array>
 using namespace phase;
+// Arduino.h defines this function-like macro after core.hpp on the target.
+#define word(...) makeWord(__VA_ARGS__)
 static unsigned checks=0;
 static void require(bool b,const char* why){++checks;if(!b){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 static void le(std::ofstream& f,uint32_t n,unsigned count){for(unsigned i=0;i<count;++i)f.put(char((n>>(8*i))&255));}
@@ -33,7 +35,7 @@ static std::vector<int16_t> audition(unsigned patch,bool split,const std::string
         if(b>=280&&b<410)s.c.alt=true;
         if(b>=410)s.c.quant=true;
         s.touch(b<570,x,y);
-        auto w=s.c.word();
+        auto w=s.c.pack();
         if(split){e.render(w,pcm.data(),37,&p);e.render(w,pcm.data()+37,block-37,&p);}
         else e.render(w,pcm.data(),pcm.size(),&p);
         t.drain(p);
@@ -59,12 +61,40 @@ int main(int argc,char** argv){
     s.touch(true,290,235);require(!s.c.panic,"toolbar drag not retriggered");
     s.touch(false,0,0);s.touch(true,300,235);require(s.c.panic,"panic");
     s.touch(false,0,0);s.touch(true,160,100);require(s.c.gate&&!s.c.panic,"fresh gesture");
-    Engine e;std::array<int16_t,4096> a{};e.render(s.c.word(),a.data(),a.size());
+    Engine e;std::array<int16_t,4096> a{};e.render(s.c.pack(),a.data(),a.size());
     require(std::all_of(a.end()-512,a.end(),[](int16_t v){return v==0;}),"stale heartbeat release");
-    s.heartbeat();e.render(s.c.word(),a.data(),128);
+    s.heartbeat();e.render(s.c.pack(),a.data(),128);
     require(std::any_of(a.begin(),a.begin()+128,[](int16_t v){return v!=0;}),"fresh heartbeat plays");
-    s.cancel();e.render(s.c.word(),a.data(),a.size());
+    s.cancel();e.render(s.c.pack(),a.data(),a.size());
     require(std::all_of(a.begin(),a.end(),[](int16_t v){return v==0;}),"panic immediate zero");
+    // Scripted gesture recording, replay, wrap, bounded capacity and manual override.
+    Surface loop;loop.touch(true,270,235);loop.touch(false,270,235);
+    require(loop.c.loop==1&&!loop.c.gate,"R arms without sound");
+    loop.touch(true,20,50);loop.tick(0);loop.touch(true,100,80);loop.tick(32);
+    loop.touch(true,240,10);loop.tick(64);loop.touch(false,240,10);loop.tick(96);
+    require(loop.c.loop==3&&!loop.c.gate,"release starts loop with gap");
+    Engine le;std::vector<int16_t> loopAudio;std::array<int16_t,768> lp{};
+    constexpr unsigned xs[]={20,100,240};
+    for(unsigned i=0;i<16;++i){
+        loop.touch(false,0,0);loop.tick(128+i*32);
+        require(loop.c.gate==(i%4!=3),"loop gap cadence");
+        if(i%4!=3)require(loop.c.x==xs[i%4],"ordered loop coordinates");
+        le.render(loop.c.pack(),lp.data(),lp.size());
+        if(i%4==3)require(std::all_of(lp.end()-128,lp.end(),[](int16_t v){return v==0;}),"loop gap silence");
+        else require(std::any_of(lp.begin(),lp.end(),[](int16_t v){return v!=0;}),"loop sounds");
+        loopAudio.insert(loopAudio.end(),lp.begin(),lp.end());
+    }
+    loop.touch(true,90,100);require(loop.c.loop==0&&loop.c.gate&&loop.c.x==90,"manual takeover");
+    loop.cancel();le.render(loop.c.pack(),lp.data(),lp.size());
+    require(std::all_of(lp.begin(),lp.end(),[](int16_t v){return v==0;}),"loop panic");
+    if(!dir.empty())wav(dir+"/gesture-loop.wav",loopAudio);
+    Surface cap;cap.touch(true,270,235);cap.touch(false,0,0);cap.touch(true,0,80);
+    cap.tick(0xfffffff0u);
+    for(unsigned i=1;i<100;++i){cap.touch(true,int(i),80);cap.tick(0xfffffff0u+i*32u);}
+    cap.touch(false,0,0);cap.tick(3200);
+    for(unsigned i=0;i<64;++i){cap.tick(3232+i*32);require(cap.c.gate&&cap.c.x==i,"bounded wrapped capture");}
+    cap.tick(3232+64*32);require(!cap.c.gate,"capacity gap");
+    cap.touch(true,305,235);require(cap.c.panic&&cap.c.loop==0&&!cap.c.gate,"toolbar panic stops loop");
     Points q;for(unsigned i=0;i<256;++i)require(q.push({uint16_t(i),0}),"queue capacity");
     require(!q.push({0,0}),"queue full drop");Point p;
     for(unsigned i=0;i<256;++i)require(q.pop(p)&&p.x==i,"FIFO");

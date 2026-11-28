@@ -61,17 +61,17 @@ void setup(){
         touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(0);
         display.fillScreen(uint16_t(0));digitalWrite(21,HIGH);
     }
-    surface.cancel();controlWord.store(surface.c.word());
+    surface.cancel();controlWord.store(surface.c.pack());
     Serial.println("PHASESPACE engineering candidate; muted. a=arm, m=mute. Physical HOLD.");
 }
 void loop(){
     if(Serial.available()){
         int c=Serial.read();
         if(c=='a'&&ready&&!fault.load()&&digitalRead(0)==HIGH&&startAudio()){surface.cancel();awaitRelease=true;armed=true;}
-        if(c=='m'){armed=false;surface.cancel();controlWord.store(surface.c.word(),std::memory_order_release);}
+        if(c=='m'){armed=false;surface.cancel();controlWord.store(surface.c.pack(),std::memory_order_release);}
     }
     if(digitalRead(0)==LOW||fault.load()){
-        armed=false;surface.cancel();controlWord.store(surface.c.word(),std::memory_order_release);
+        armed=false;surface.cancel();controlWord.store(surface.c.pack(),std::memory_order_release);
     }
     uint32_t now=millis();
     if(ready&&uint32_t(now-inputAt)>=12){
@@ -79,7 +79,8 @@ void loop(){
         bool down=p.z>=400;
         if(!down)awaitRelease=false;
         surface.touch(down&&!awaitRelease,axis(p.y,320),axis(4100-int(p.x),240));
-        uint32_t w=surface.c.word();
+        surface.tick(inputAt);
+        uint32_t w=surface.c.pack();
         if(!armed)w|=1u<<23;
         controlWord.store(w,std::memory_order_release);
     }

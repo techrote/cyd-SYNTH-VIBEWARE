@@ -11,9 +11,9 @@ constexpr unsigned rate=24000, block=128, width=320, height=240, field=208;
 constexpr float tau=6.2831853071795864769f;
 static_assert(std::atomic<uint32_t>::is_always_lock_free,"32-bit atomics required");
 struct Control {
-    unsigned x=160,y=104,preset=0,seq=0;
+    unsigned x=160,y=104,preset=0,seq=0,loop=0; // loop is UI-only; not serialized
     bool alt=false,quant=false,gate=false,panic=false;
-    uint32_t word() const {
+    uint32_t pack() const {
         return std::min(x,319u)|(std::min(y,207u)<<9)|(std::min(preset,5u)<<17)|
             (uint32_t(alt)<<20)|(uint32_t(quant)<<21)|(uint32_t(gate)<<22)|
             (uint32_t(panic)<<23)|((seq&255u)<<24);
@@ -27,25 +27,63 @@ struct Control {
     }
 };
 class Surface {
-    bool down_=false, playing_=false;
+    struct XY {uint16_t x,y;};
+    std::array<XY,64> gesture_{};
+    unsigned count_=0,index_=0;
+    uint32_t lastTick_=0;
+    bool down_=false,playing_=false,clockArmed_=false;
+    void append() {
+        if(count_<gesture_.size())gesture_[count_++]={uint16_t(c.x),uint16_t(c.y)};
+    }
+    void clearLoop() {c.loop=0;count_=index_=0;clockArmed_=false;c.gate=false;}
 public:
     Control c{};
+    // R arms one field gesture; release loops it with one silent control tick.
+    // UI owner only. Fixed capacity, no unbounded catch-up or audio-thread work.
     void touch(bool down,int x,int y) {
         x=std::clamp(x,0,319); y=std::clamp(y,0,239);
         if(down&&!down_) {
             playing_=y<int(field);
-            if(playing_) c.panic=false;
-            else if(x<216) c.preset=unsigned(x/36);
-            else if(x<251)c.quant=!c.quant;
-            else if(x<286)c.alt=!c.alt;
-            else c.panic=true;
+            if(playing_) {
+                if(c.loop==3)clearLoop();
+                c.panic=false;
+                if(c.loop==1){c.loop=2;count_=index_=0;clockArmed_=false;}
+            } else if(x<192)c.preset=unsigned(x/32);
+            else if(x<224)c.quant=!c.quant;
+            else if(x<256)c.alt=!c.alt;
+            else if(x<288){
+                if(c.loop)clearLoop();else{c.loop=1;c.gate=false;}
+            } else {clearLoop();c.panic=true;}
         }
-        if(down&&playing_) {c.x=unsigned(x);c.y=unsigned(std::min(y,207));}
-        if(!down)playing_=false;
-        down_=down;c.gate=down&&playing_&&!c.panic;
+        if(down&&playing_) {
+            c.x=unsigned(x);c.y=unsigned(std::min(y,207));
+            if(c.loop==2&&count_==0)append();
+        }
+        if(!down&&playing_) {
+            if(c.loop==2) {
+                if(count_>=2){c.loop=3;index_=0;clockArmed_=false;c.gate=false;}
+                else clearLoop();
+            }
+            playing_=false;
+        }
+        down_=down;
+        if(c.loop!=3)c.gate=down&&playing_&&!c.panic;
         ++c.seq;
     }
-    void cancel() { down_=false;playing_=false;c.gate=false;c.panic=true;++c.seq; }
+    void tick(uint32_t now) {
+        if(c.loop<2)return;
+        if(!clockArmed_){lastTick_=now;clockArmed_=true;return;}
+        const uint32_t elapsed=now-lastTick_;
+        if(elapsed<32)return;
+        lastTick_=elapsed>=64?now:lastTick_+32;
+        if(c.loop==2){if(playing_)append();}
+        else if(index_==count_){c.gate=false;index_=0;}
+        else {
+            const auto p=gesture_[index_++];c.x=p.x;c.y=p.y;c.gate=!c.panic;
+        }
+        ++c.seq;
+    }
+    void cancel() {down_=false;playing_=false;clearLoop();c.panic=true;++c.seq;}
     void heartbeat() {++c.seq;}
 };
 struct Patch {const char* name;float ratio,couple,morph,detune,mix;uint16_t color;};
@@ -150,7 +188,7 @@ public:
             ((((rgb>>5)&63)*level/8)<<5)|((rgb&31)*level/8));
     }
     static unsigned button(unsigned x) {
-        return x<216?x/36:(x<251?6:(x<286?7:8));
+        return std::min(x/32,9u);
     }
     void row(const Control& c,unsigned y,uint16_t* dst)const {
         if(y>=height)return;
@@ -160,8 +198,8 @@ public:
                 dst[x]=(x==160||y==104)?0x2947:((x%40==0||y%26==0)?0x18a4:0x0842);
             } else {
                 unsigned b=button(x);
-                bool sel=b==c.preset||(b==6&&c.quant)||(b==7&&c.alt)||(b==8&&c.panic);
-                uint16_t ink=b<6?patches[b].color:(b==8?0xf986:0xadb5);
+                bool sel=b==c.preset||(b==6&&c.quant)||(b==7&&c.alt)||(b==8&&c.loop)||(b==9&&c.panic);
+                uint16_t ink=b<6?patches[b].color:(b==9?0xf986:(b==8&&c.loop==2?0xf986:0xadb5));
                 bool edge=x==0||button(x-1)!=b||y==field||y==239;
                 dst[x]=edge?0x0000:dim(ink,sel?4:1);
             }
@@ -182,12 +220,12 @@ public:
                     if(x==int(c.x)||y==c.y)dst[x]=0xffff;
             }
         } else {
-            constexpr uint8_t glyph[9][7]={{4,12,4,4,4,4,14},{14,17,1,2,4,8,31},
+            constexpr uint8_t glyph[10][7]={{4,12,4,4,4,4,14},{14,17,1,2,4,8,31},
               {30,1,1,14,1,1,30},{2,6,10,18,31,2,2},{31,16,16,30,1,1,30},
               {14,16,16,30,17,17,14},{14,17,17,17,21,18,13},
-              {17,27,21,21,17,17,17},{17,17,10,4,10,17,17}};
-            constexpr unsigned start[]={0,36,72,108,144,180,216,251,286};
-            if(y>=217&&y<231)for(unsigned b=0;b<9;++b){
+              {17,27,21,21,17,17,17},{30,17,17,30,20,18,17},{17,17,10,4,10,17,17}};
+            constexpr unsigned start[]={0,32,64,96,128,160,192,224,256,288};
+            if(y>=217&&y<231)for(unsigned b=0;b<10;++b){
                 unsigned bits=glyph[b][(y-217)/2];
                 for(unsigned k=0;k<5;++k)if(bits&(16u>>k)){
                     dst[start[b]+12+2*k]=0xffff;dst[start[b]+13+2*k]=0xffff;
