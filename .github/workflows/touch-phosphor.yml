@@ -129,6 +129,13 @@ jobs:
           ./board-test | tee target-receipts/native.log
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all board_test.cpp -o board-san
           ./board-san | tee target-receipts/sanitized.log
+          git fetch --no-tags --depth=1 origin b7ad6410eca359603195634059cb2e9b2cabc4ec
+          git show b7ad6410eca359603195634059cb2e9b2cabc4ec:platform/dac-lifecycle/clock_sink.hpp > "$RUNNER_TEMP/clock_sink.hpp"
+          test "$(git hash-object "$RUNNER_TEMP/clock_sink.hpp")" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-test
+          ./audio-owner-test | tee target-receipts/audio-owner.log
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-san
+          ./audio-owner-san | tee target-receipts/audio-owner-san.log
           python -m pip install platformio==6.1.18 intelhex==2.3.0
           pio --version > target-receipts/toolchain.txt
           pio run -e cyd-phosphor-frontpanel 2>&1 | tee target-receipts/build.log

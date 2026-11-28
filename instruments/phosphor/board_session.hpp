@@ -33,6 +33,10 @@ public:
   due_+=5333;if(++fraction_==3){++due_;fraction_=0;}
   return true;
  }
+ // Opt-in clocked producer; never interleave with digital() on the same session.
+ void clock_block(int16_t* out){for(int i=0;i<128;++i)out[i]=session_.sample();}
+ bool clock_fault()const{return session_.fault();}
+ void clock_abort(){cancel();}
  void capture(){frame_=session_.visual();}
  // P12 row grouping, scoped to the stable copied frame (not live simulation).
  // Based on same-repo PLATFORM #16, 46285f83, strip.hpp; no external source.
