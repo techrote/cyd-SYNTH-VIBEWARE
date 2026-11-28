@@ -1,4 +1,4 @@
-name: XENOBIO author Windows candidate
+name: XENOBIO author qualification
 on:
   pull_request:
     paths:
@@ -84,4 +84,33 @@ jobs:
           path: |
             Xenobio-Windows.zip
             Xenobio-Windows.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror instruments/xenobio/target_input_test.cpp -o target_input_test
+          ./target_input_test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18
+      - run: |
+          set -o pipefail
+          mkdir xeno-target-evidence
+          pio run -d instruments/xenobio/firmware -e cyd-xenobio | tee xeno-target-evidence/build.txt
+      - run: |
+          pio pkg list -d instruments/xenobio/firmware > xeno-target-evidence/toolchain.txt
+          git rev-parse HEAD > xeno-target-evidence/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > xeno-target-evidence/source-tree.txt
+          cp instruments/xenobio/firmware/.pio/build/cyd-xenobio/firmware.map xeno-target-evidence/
+          sha256sum instruments/xenobio/firmware/.pio/build/cyd-xenobio/firmware.elf > xeno-target-evidence/elf-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xenobio-target-map-not-installable
+          path: xeno-target-evidence/
           if-no-files-found: error
