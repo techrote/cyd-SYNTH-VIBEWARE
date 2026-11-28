@@ -1,6 +1,8 @@
 #include "checkpoint.hpp"
 #include "checkpoint_paced.hpp"
 #include "reaction_sound_test.hpp"
+#include "reaction_gallery.hpp"
+#include <string>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -8,8 +10,16 @@ namespace sf=cluster::spatial;
 namespace cp=sf::checkpoint;
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){std::cerr<<why<<'\n';std::exit(1);}}
-int main(){
+int main(int argc,char** argv){
+    if(argc==3&&std::string(argv[1])=="--gallery"){
+        const std::filesystem::path folder(argv[2]);
+        sf::gallery::run(check,&folder);
+        std::cout<<"PASS reaction gallery checks="<<checks<<'\n';
+        return 0;
+    }
+    if(argc!=1){std::cerr<<"usage: cluster_checkpoint [--gallery new-directory]\n";return 1;}
     sf::sound::regression(check);
+    sf::gallery::run(check);
     sf::ReactionField worker,local;
     sf::ReactionField::Checkpoint state{},actual{};
     cp::Receiver rx(91);

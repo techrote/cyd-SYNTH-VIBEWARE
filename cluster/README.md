@@ -319,3 +319,25 @@ Worker exports one immutable checkpoint every ten completed ticks, sends at most
 
 ## M20: REACTION sonification (desktop, opt-in)
 The actual presented 32x24 reaction image (including checkpoint freeze and blend) drives four independent triangle voices. Each quadrant's mean and peak intensity controls gain. Audio stays local at 24 kHz; one packed word crosses to the audio thread, no network operations or simulation on that thread. Four harmonic palettes: keys 1–4. S enables/disables sound, M mutes, loss of window focus mutes, Esc exits; hold still overrides to local, R switches remote. Starts muted; no audio thread in CI smoke mode. A 120 ms control lease releases sound if the UI stalls; queued host audio and device latency are additional. Gain slew is bounded to 32 ms. Same standalone or UDP commands as M17; no new wire bytes. This is an initial musical audition, not a claim of listening quality, ESP32 timing or physical qualification. Embedded checkpoint profiles remain visual-only. Native checkpoint regression tests the original DSP mapping, partition invariance, headroom, release, distinct palettes and restored state control equality.
+
+
+## M21: deterministic actual-core reaction audio gallery
+
+Run `cluster_checkpoint.exe --gallery "my reaction gallery"` (or the native
+executable without .exe). The output directory must not already exist. Six
+8-second, mono signed 16-bit little-endian 24 kHz WAVs and a metrics CSV are
+generated from the real ReactionView, encoded snapshot/checkpoint packets,
+and Voice implementation. The first four tracks use identical standalone
+logical-time workloads with the four harmonic palettes. The last two use
+the same palette and remote worker trajectory; the blackout track suppresses
+all packets at 2.4–4.0 seconds, exercising checkpoint restoration, frozen
+presentation, local continuation and fresh rejoin. The last 200 ms are
+explicitly muted. The fixture checks exact saved lattice recovery at tick 48,
+bounded PCM, final silence, distinct palettes and actual difference between
+clean/fault PCM. This is virtual-time in-process packet delivery, not socket,
+physical RF or actual sound-device playback. The previous separate-process
+UDP and graphical tests are unchanged. The Windows package contains the
+gallery and re-generates it after extraction, comparing all seven file hashes.
+The package records both the PR head and actual checkout commit/tree (the
+latter may be a GitHub PR merge commit). Platform DAC P11 remains HOLD;
+no embedded audio backend adopted.

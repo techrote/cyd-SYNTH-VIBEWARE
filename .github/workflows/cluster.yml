@@ -21,6 +21,8 @@ jobs:
       - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
       - if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $pkg = 'cluster-package'
@@ -65,7 +67,10 @@ jobs:
           Copy-Item build/cluster/Release/cluster_checkpoint.exe $pkg
           Copy-Item build/cluster/Release/cluster_checkpoint_udp.exe $pkg
           Copy-Item cluster/checkpoint_udp_test.py $pkg
+          & "$pkg/cluster_checkpoint.exe" --gallery "$pkg/reaction-gallery"
+          if ($LASTEXITCODE -ne 0) { throw 'Reaction gallery generation failed' }
           Copy-Item cluster/README.md $pkg
+          $env:PR_HEAD_SHA | Set-Content -Encoding ascii "$pkg/source-pr-head.txt"
           git rev-parse HEAD | Set-Content -Encoding ascii "$pkg/source-commit.txt"
           if ($LASTEXITCODE -ne 0) { throw 'Source commit receipt failed' }
           git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii "$pkg/source-tree.txt"
@@ -161,6 +166,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI checkpoint/override failed' }
           & './extracted cluster/cluster_checkpoint.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint replay failed' }
+          & './extracted cluster/cluster_checkpoint.exe' --gallery 'reaction replay'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction gallery failed' }
+          $gallery = @(Get-ChildItem "$extracted/reaction-gallery" -File)
+          if ($gallery.Count -ne 7) { throw 'Unexpected reaction gallery file count' }
+          foreach ($file in $gallery) {
+            $replay = Join-Path 'reaction replay' $file.Name
+            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $replay -Algorithm SHA256).Hash) {
+              throw "Reaction gallery replay mismatch: $($file.Name)"
+            }
+          }
           python './extracted cluster/checkpoint_udp_test.py' './extracted cluster/cluster_checkpoint_udp.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint UDP failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
