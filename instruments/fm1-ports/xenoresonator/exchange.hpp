@@ -12,6 +12,10 @@ struct Exchange {
   void stop(){input.store(0,std::memory_order_release);panic.fetch_add(1,std::memory_order_release);}
   void send(bool down,int x,int y){
     if(blocked){if(down)return;blocked=false;}
+    // Repeated idle UPs carry no edge. Preserve every DOWN to renew the lease.
+    if(!down && !(input.load(std::memory_order_relaxed)&(1u<<17))){
+      input.store((uint32_t(std::clamp(y,0,239))<<9)|uint32_t(std::clamp(x,0,319)),std::memory_order_release);return;
+    }
     uint32_t w=write.load(std::memory_order_relaxed);
     if(w-readpos.load(std::memory_order_acquire)>=capacity){
       overflows.fetch_add(1,std::memory_order_relaxed);blocked=down;stop();return;

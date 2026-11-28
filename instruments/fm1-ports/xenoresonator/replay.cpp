@@ -29,6 +29,39 @@ static void exchange_tests(){
   q.send(true,150,30);q.send(false,0,0);pump();audible();assert(last==0&&!e.view().held);
   std::cout<<"PASS: ordered short tap, double toggle, preset/strike, panic epoch, overflow release, disarm discard and cursor wrap; Exchange bytes "<<sizeof(Exchange)<<"\n";
 }
+// Lost-contact recovery is fail-closed: a delayed DOWN must not restart audio
+// until the physical/UI producer has observed a release.
+static void contact_safety_tests(){
+  Engine e; int16_t b[128];
+  auto zero=[&]{for(auto x:b)assert(x==0);};
+  auto sound=[&]{assert(std::any_of(std::begin(b),std::end(b),[](int16_t x){return x!=0;}));};
+  e.input(true,90,30);e.render(b,128);sound();
+  for(unsigned i=0;i<32;++i)e.render(b,128);
+  assert(!e.view().held);
+  // A delayed keepalive, not an actual new contact.
+  e.input(true,170,30);assert(!e.view().held);
+  e.input(true,300,210);e.render(b,128);zero();
+  e.input(true,80,30);e.render(b,128);zero();assert(!e.view().held);
+  e.input(false,0,0);e.input(true,80,30);e.render(b,128);sound();assert(e.view().held);
+  // Panic must work even in the middle of a held drag through the footer.
+  e.input(true,300,210);e.render(b,128);zero();
+  e.input(true,110,20);e.render(b,128);zero();assert(!e.view().held);
+  e.input(false,0,0);e.input(true,110,20);e.render(b,128);sound();
+  // Unchanged DOWN events are lease renewals, not redundant UP events.
+  for(unsigned i=0;i<64;++i){e.input(true,110,20);e.render(b,128);assert(e.view().held);}
+  Exchange q;uint32_t last=0,alarm=0;Engine f;
+  for(unsigned i=0;i<10000;++i)q.send(false,0,0);
+  assert(q.overflows.load()==0&&q.write.load()==0);
+  q.send(true,80,30);q.send(false,80,30);
+  for(unsigned i=0;i<10000;++i)q.send(false,80,30);
+  assert(q.overflows.load()==0&&q.write.load()==2);
+  q.pump(f,last,alarm);f.render(b,128);sound();assert(!f.view().held);
+  q.send(true,80,30);q.pump(f,last,alarm);
+  for(unsigned i=0;i<64;++i){q.send(true,80,30);q.pump(f,last,alarm);f.render(b,128);assert(f.view().held);}
+  q.stop();q.pump(f,last,alarm);f.render(b,128);zero();
+  q.send(false,0,0);q.send(true,90,40);q.pump(f,last,alarm);f.render(b,128);sound();
+  std::cout<<"PASS: stale contact, held-drag panic, release recovery, idle UP suppression and live DOWN keepalives\n";
+}
 static std::vector<int16_t> rake_phrase(unsigned mat,bool rake,unsigned block,View* frame=nullptr){
   Engine e;e.input(true,int(mat*53+20),210);e.input(false,0,0);e.input(true,rake?180:50,232);e.input(false,0,0);
   std::vector<int16_t> out(rate*4);
@@ -46,4 +79,4 @@ static void rake_tests(int argc,char** argv){
   Exchange q;q.publish(a.view());assert(q.read().rake);a.input(true,50,232);a.input(false,0,0);q.publish(a.view());assert(!q.read().rake);
   std::cout<<"PASS: four rake phrases partition-identical; strike contrast, sample cooldown, panic and mode snapshot\n";
 }
-int main(int argc,char** argv){exchange_tests();rake_tests(argc,argv);int peak=0;for(unsigned m=0;m<4;++m){View v;auto a=phrase(m,true,128,&v),b=phrase(m,true,32);assert(a==b);assert(a!=phrase(m,false,128));for(int x:a)peak=std::max(peak,std::abs(x));assert(peak<=12000);if(argc>1){std::string p=std::string(argv[1])+"/material-"+std::to_string(m);wav(p+".wav",a);ppm(p+".ppm",v);}}Engine e;int16_t a[128];e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);e.render(a,128);auto v=e.view();assert(v.level[0]>0&&v.level[3]==0&&v.level[4]==0&&v.level[5]==0);e.input(false,0,0);e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);for(int i=0;i<32;++i)e.render(a,128);assert(e.view().level[3]>0);assert(!e.view().held);e.input(false,0,0);e.input(true,300,210);e.render(a,128);for(auto x:a)assert(x==0);for(int i=0;i<20000;++i){e.input(false,0,0);e.input(true,i%320,i%184);e.render(a,128);for(auto x:a)assert(std::abs(int(x))<=12000);}std::cout<<"PASS: four 96000-sample phrases partition-identical; coupling ablation, lease, panic; 2560000 stress samples; phrase peak "<<peak<<"; engine bytes "<<sizeof(Engine)<<"\n";}
+int main(int argc,char** argv){exchange_tests();contact_safety_tests();rake_tests(argc,argv);int peak=0;for(unsigned m=0;m<4;++m){View v;auto a=phrase(m,true,128,&v),b=phrase(m,true,32);assert(a==b);assert(a!=phrase(m,false,128));for(int x:a)peak=std::max(peak,std::abs(x));assert(peak<=12000);if(argc>1){std::string p=std::string(argv[1])+"/material-"+std::to_string(m);wav(p+".wav",a);ppm(p+".ppm",v);}}Engine e;int16_t a[128];e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);e.render(a,128);auto v=e.view();assert(v.level[0]>0&&v.level[3]==0&&v.level[4]==0&&v.level[5]==0);e.input(false,0,0);e.input(true,235,210);e.input(false,0,0);e.input(true,110,20);for(int i=0;i<32;++i)e.render(a,128);assert(e.view().level[3]>0);assert(!e.view().held);e.input(false,0,0);e.input(true,300,210);e.render(a,128);for(auto x:a)assert(x==0);for(int i=0;i<20000;++i){e.input(false,0,0);e.input(true,i%320,i%184);e.render(a,128);for(auto x:a)assert(std::abs(int(x))<=12000);}std::cout<<"PASS: four 96000-sample phrases partition-identical; coupling ablation, lease, panic; 2560000 stress samples; phrase peak "<<peak<<"; engine bytes "<<sizeof(Engine)<<"\n";}

@@ -15,16 +15,17 @@ struct Control {
     bool alt=false,quant=false,gate=false,panic=false;
     unsigned loopRate=1; // UI-only: slow, normal, fast
     bool loopReverse=false;
+    unsigned topology=0; // 0 mutual, 1 independent, 2 A drives B
     uint32_t pack() const {
         return std::min(x,319u)|(std::min(y,207u)<<9)|(std::min(preset,5u)<<17)|
             (uint32_t(alt)<<20)|(uint32_t(quant)<<21)|(uint32_t(gate)<<22)|
-            (uint32_t(panic)<<23)|((seq&255u)<<24);
+            (uint32_t(panic)<<23)|((seq&63u)<<24)|(std::min(topology,2u)<<30);
     }
     static Control decode(uint32_t w) {
         Control c;
         c.x=std::min(w&511u,319u); c.y=std::min((w>>9)&255u,207u);
         c.preset=std::min((w>>17)&7u,5u); c.alt=(w>>20)&1;
-        c.quant=(w>>21)&1;c.gate=(w>>22)&1;c.panic=(w>>23)&1;c.seq=w>>24;
+        c.quant=(w>>21)&1;c.gate=(w>>22)&1;c.panic=(w>>23)&1;c.seq=(w>>24)&63u;c.topology=(w>>30)==3u?0u:w>>30;
         return c;
     }
 };
@@ -36,6 +37,8 @@ class Surface {
     bool down_=false,playing_=false,clockArmed_=false;
     bool adjusting_=false,adjustMoved_=false,reverseCycle_=false;
     int adjustX_=0,adjustY_=0;
+    bool modifying_=false,modifyMoved_=false;
+    int modifyX_=0,modifyY_=0;
     void append() {
         if(count_<gesture_.size())gesture_[count_++]={uint16_t(c.x),uint16_t(c.y)};
     }
@@ -57,11 +60,20 @@ public:
                 if(c.loop==1){c.loop=2;count_=index_=0;clockArmed_=false;}
             } else if(x<192)c.preset=unsigned(x/32);
             else if(x<224)c.quant=!c.quant;
-            else if(x<256)c.alt=!c.alt;
+            else if(x<256){modifying_=true;modifyMoved_=false;modifyX_=x;modifyY_=y;}
             else if(x<288){
                 if(c.loop==3){adjusting_=true;adjustMoved_=false;adjustX_=x;adjustY_=y;}
                 else if(c.loop)clearLoop();else{c.loop=1;c.gate=false;}
             } else {clearLoop();c.panic=true;}
+        }
+        if(modifying_) {
+            if(down) {
+                if(std::abs(x-modifyX_)>=12||std::abs(y-modifyY_)>=12)modifyMoved_=true;
+                if(modifyMoved_)c.topology=x<107?1u:(x<214?2u:0u);
+            } else {
+                if(!modifyMoved_)c.alt=!c.alt;
+                modifying_=false;
+            }
         }
         if(adjusting_) {
             if(down) {
@@ -106,7 +118,7 @@ public:
         }
         ++c.seq;
     }
-    void cancel() {down_=false;playing_=false;clearLoop();c.panic=true;++c.seq;}
+    void cancel() {down_=false;playing_=false;modifying_=false;clearLoop();c.panic=true;++c.seq;}
     void heartbeat() {++c.seq;}
 };
 struct Patch {const char* name;float ratio,couple,morph,detune,mix;uint16_t color;};
@@ -139,7 +151,7 @@ class Engine {
     std::array<float,320> free_{},scale_{};
     uint32_t a_=0,b_=0,last_=0,age_=rate,decim_=0;
     float f_=220,ratio_=1.5f,depth_=0,morph_=0,mix_=0.3f;
-    float env_=0,prevIn_=0,prevOut_=0,sa_=0,sb_=0;
+    float env_=0,prevIn_=0,prevOut_=0,sa_=0,sb_=0,depthA_=0;
     float wave(uint32_t p)const {
         unsigned i=p>>24;
         float t=float((p>>8)&65535u)*(1.0f/65536.0f);
@@ -167,14 +179,16 @@ public:
         const float targetF=c.quant?scale_[c.x]:free_[c.x];
         const float targetRatio=p.ratio+(c.alt?0.16f*(v-0.5f):p.detune);
         const float targetDepth=p.couple*(c.alt?0.30f+0.70f*v:v)*0.28f;
+        const float targetA=c.topology==0?targetDepth:0.0f;
+        const float targetB=c.topology==1?0.0f:targetDepth;
         const float targetMorph=c.alt?p.morph:std::min(0.62f,p.morph*(0.35f+0.65f*v));
         for(std::size_t i=0;i<n;++i){
             const bool gate=c.gate&&!c.panic&&age_<rate*120/1000;
             if(age_<rate)++age_;
             f_+=(targetF-f_)*0.006f;ratio_+=(targetRatio-ratio_)*0.006f;
-            depth_+=(targetDepth-depth_)*0.006f;morph_+=(targetMorph-morph_)*0.006f;
+            depth_+=(targetB-depth_)*0.006f;depthA_+=(targetA-depthA_)*0.006f;morph_+=(targetMorph-morph_)*0.006f;
             mix_+=(p.mix-mix_)*0.006f;
-            a_+=step(f_*(1.0f+depth_*sb_));
+            a_+=step(f_*(1.0f+depthA_*sb_));
             b_+=step(f_*ratio_*(1.0f+depth_*sa_));
             sa_=wave(a_);sb_=wave(b_);
             float wa=sa_+(wave(a_+a_)-sa_)*morph_;
@@ -263,6 +277,11 @@ public:
               {14,16,16,30,17,17,14},{14,17,17,17,21,18,13},
               {17,27,21,21,17,17,17},{30,17,17,30,20,18,17},{17,17,10,4,10,17,17}};
             constexpr unsigned start[]={0,32,64,96,128,160,192,224,256,288};
+            if(y>=211&&y<=214){
+                // M: one bar = independent, two = A drives B, three = mutual.
+                unsigned bars=c.topology==1?1u:(c.topology==2?2u:3u);
+                for(unsigned i=0;i<bars;++i)for(unsigned k=0;k<4;++k)dst[228+7*i+k]=0xffff;
+            }
             if(c.loop==3&&y>=211&&y<=214){
                 for(unsigned i=0;i<std::min(c.loopRate,2u)+1;++i){
                     unsigned x=c.loopReverse?281-7*i:260+7*i;

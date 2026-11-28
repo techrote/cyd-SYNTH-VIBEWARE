@@ -1,25 +1,52 @@
 {
-  "schema": 1,
+  "schema": 2,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
-  "scope": "Standalone applications; no platform or HYBRID adoption",
+  "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
+  "predecessor": {
+    "head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
+    "tree": "8bf304338573caccfc6925875ddfe1d048fb3826",
+    "author_integration_runs": [
+      46102984182,
+      46102984161
+    ],
+    "windows_artifacts": [
+      15246432643,
+      15246670783
+    ],
+    "independent_qa_run": 46104942985,
+    "disposition": "preserve frozen M3 audition and QA receipts; no substitution"
+  },
   "sources": [
     {
       "pr": 11,
-      "head": "0139740e3db44496a779d6629b424397f9f53dfb",
-      "path": "instruments/phasespace",
-      "author_run": 46098869310
+      "head": "072ede0c2909836f90639d2112ea3786d770795d",
+      "tree": "0b1e4ec39cdd50ecfc7b8105c7daf4c9f7cdd52a",
+      "path": "instruments/phasespace/",
+      "author_run": 46103776403
     },
     {
       "pr": 14,
-      "head": "b98b177f4bd94ac5883fe5c3daa9ae0184e94b7d",
-      "path": "instruments/fm1-ports/xenoresonator",
-      "author_run": 46101949464
+      "head": "7620dacd6e6d68adeb65bf032d3d06ab9bb32948",
+      "tree": "493d6a57f2a190ef400edfb19e8638ac648086fd",
+      "path": "instruments/fm1-ports/xenoresonator/",
+      "author_run": 46107431719
     }
   ],
   "workflow_overrides": [
     ".github/workflows/phasespace.yml",
     ".github/workflows/port-xenoresonator.yml"
   ],
+  "integration_gate": "PENDING_NEW_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
-  "qa_gate": "PENDING"
+  "qa_gate": "PENDING_M4_INTEGRATION",
+  "owner_gate": "HOLD",
+  "changed_source_paths": [
+    "instruments/phasespace/README.md",
+    "instruments/phasespace/core.hpp",
+    "instruments/phasespace/replay.cpp",
+    "instruments/fm1-ports/xenoresonator/README.md",
+    "instruments/fm1-ports/xenoresonator/core.hpp",
+    "instruments/fm1-ports/xenoresonator/exchange.hpp",
+    "instruments/fm1-ports/xenoresonator/replay.cpp"
+  ]
 }
