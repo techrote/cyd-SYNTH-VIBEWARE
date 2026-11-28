@@ -79,6 +79,28 @@ public:
         while(!slice()){}
         return true;
     }
+    // Checkpoint format: completed tick, then U and V planes as little-endian Q12.
+    // The tick is carried by the transport envelope, not in these plane bytes.
+    static constexpr std::size_t checkpoint_bytes=4*n;
+    using Checkpoint=std::array<uint8_t,checkpoint_bytes>;
+    bool export_checkpoint(Checkpoint& out)const{
+        if(busy_)return false;
+        for(std::size_t i=0;i<n;++i){
+            const auto u=u_[bank_][i],v=v_[bank_][i];
+            out[2*i]=uint8_t(u);out[2*i+1]=uint8_t(u>>8);
+            out[2*n+2*i]=uint8_t(v);out[2*n+2*i+1]=uint8_t(v>>8);
+        }
+        return true;
+    }
+    // Single-owner, tick-boundary transaction. Validate all bytes before mutation.
+    // May replace a suspended partial tick; scratch bank is overwritten by slice().
+    bool restore_checkpoint(uint32_t seq,const Checkpoint& in){
+        if(seq==std::numeric_limits<uint32_t>::max())return false;
+        auto read=[&in](std::size_t i){return uint16_t(unsigned(in[2*i])|(unsigned(in[2*i+1])<<8));};
+        for(std::size_t i=0;i<2*n;++i)if(read(i)>one)return false;
+        for(std::size_t i=0;i<n;++i){u_[0][i]=read(i);v_[0][i]=read(n+i);}
+        bank_=0;step_=seq;sub_=0;row_=0;busy_=false;project();return true;
+    }
     bool bounded()const{
         for(unsigned b=0;b<2;++b)for(std::size_t i=0;i<n;++i)if(u_[b][i]>one||v_[b][i]>one)return false;
         return true;
