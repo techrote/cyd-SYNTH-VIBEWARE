@@ -1,0 +1,153 @@
+name: PORT Chronomorph author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/chronomorph/**'
+      - '.github/workflows/port-chronomorph.yml'
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/chronomorph
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Native execution and sanitizers
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir media san
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime-test
+          ./replay media
+          ./runtime-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o gate-test
+          ./gate-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined replay.cpp -o replay-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime_test.cpp -o runtime-san
+          ./replay-san san
+          ./runtime-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined target_gate_test.cpp -o gate-san
+          ./gate-san
+          diff -qr media san
+          sha256sum media/* > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronomorph-native-Linux
+          path: |
+            instruments/fm1-ports/chronomorph/media/
+            instruments/fm1-ports/chronomorph/SHA256SUMS.txt
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/chronomorph
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Verify checkout using host Git
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+      - shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          test -s "owner package/SOURCE.txt"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o "owner package/runtime-test.exe" -static
+          g++ -std=c++17 -O2 windows.cpp -o "owner package/Chronomorph.exe" -pthread -lwinmm -lgdi32 -luser32 -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o "owner package/gate-test.exe" -static
+          cp core.hpp runtime.hpp runtime_test.cpp target_gate.hpp target_gate_test.cpp replay.cpp windows.cpp README.md "owner package/"
+          g++ --version > "owner package/TOOLCHAIN.txt"
+          "owner package/replay.exe" "owner package/media"
+          "owner package/runtime-test.exe"
+          "owner package/gate-test.exe"
+          (cd "owner package" && sha256sum *.exe *.hpp *.cpp SOURCE.txt TOOLCHAIN.txt README.md media/* > SHA256SUMS.txt)
+      - shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath Chronomorph.zip
+          Expand-Archive Chronomorph.zip -DestinationPath "extracted audition"
+          # Verify every packaged payload before executing extracted binaries.
+          $root = (Resolve-Path "extracted audition").Path
+          $manifest = Join-Path $root "SHA256SUMS.txt"
+          $seen = @{}
+          foreach ($line in Get-Content -LiteralPath $manifest) {
+            if ($line -notmatch '^([0-9a-fA-F]{64})  (.+)$') { throw "Malformed checksum entry" }
+            $hash = $Matches[1]; $rel = $Matches[2]
+            if ($rel -notmatch '^(media/)?[A-Za-z0-9_.-]+$' -or $rel -match '(^|/)[.][.]?$') { throw "Unsafe checksum path: $rel" }
+            if ($seen.ContainsKey($rel)) { throw "Duplicate checksum path: $rel" }
+            $seen[$rel] = $true
+            $path = Join-Path $root $rel
+            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $hash) { throw "Payload mismatch: $rel" }
+          }
+          $payload = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { $_.FullName -ne $manifest })
+          if ($payload.Count -ne $seen.Count -or $seen.Count -eq 0) { throw "Incomplete checksum coverage" }
+          foreach ($f in $payload) {
+            $rel = $f.FullName.Substring($root.Length + 1).Replace([char]92, [char]47)
+            if (-not $seen.ContainsKey($rel)) { throw "Unlisted payload: $rel" }
+          }
+          New-Item -ItemType Directory -Force "extracted audition/regenerated media" | Out-Null
+          & "./extracted audition/replay.exe" "extracted audition/regenerated media"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./extracted audition/runtime-test.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./extracted audition/gate-test.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($f in Get-ChildItem "extracted audition/media" -File) {
+            $actual = Get-FileHash (Join-Path "extracted audition/regenerated media" $f.Name)
+            if ($actual.Hash -ne (Get-FileHash $f.FullName).Hash) { throw "Replay mismatch: $($f.Name)" }
+          }
+          & "./extracted audition/Chronomorph.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-FileHash Chronomorph.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronomorph-windows
+          path: instruments/fm1-ports/chronomorph/Chronomorph.zip
+  target:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/chronomorph
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and link exact CYD source
+        run: |
+          set -euo pipefail
+          export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/pio-chronomorph"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          python -c 'import intelhex'
+          pio run -e cyd-port-chrono 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -iname 'LICENSE*' -o -iname 'COPYING*' > target-receipts/notice-paths.txt
+          cp .pio/build/cyd-port-chrono/firmware.map target-receipts/
+          test -s target-receipts/firmware.map
+          sha256sum .pio/build/cyd-port-chrono/firmware.elf > target-receipts/elf.sha256
+          (cd target-receipts && sha256sum source.txt build.log packages.txt notice-paths.txt firmware.map elf.sha256 > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chronomorph-target-receipts-no-firmware
+          path: instruments/fm1-ports/chronomorph/target-receipts/
+          if-no-files-found: error

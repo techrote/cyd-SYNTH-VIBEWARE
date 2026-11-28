@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
@@ -45,24 +45,41 @@
     },
     {
       "pr": 18,
-      "head": "9f7b1ff5bead8d718befd1284b6bd4ae1a4b67ed",
-      "tree": "ee5451975c3725d8f0896479e41f7e93ac5fa474",
+      "head": "c0a866a71ecf0a6be958a04f9870b92d0a7fe069",
+      "tree": "38ef03e00867b92a0b187ad19888057ce9383630",
       "path": "instruments/chronogrid/",
-      "author_run": 46117794221,
+      "author_run": 46121977986,
       "independent_native_qa": {
-        "head": "a50080a29c1fef7a69d3d0bc475c4c01934e94b2",
-        "checks_each": 2696623,
-        "media_exact": 18,
-        "archived_ratio_media_exact": 3,
-        "windows": "NOT RUN independently at checkpoint",
-        "target": "NOT RUN independently at checkpoint"
-      }
+        "head": "bfe254ad2786ecf1644d849071923f4e16a257a9",
+        "checks_each": 2891648,
+        "media_exact": 21
+      },
+      "independent_windows_qa": {
+        "run": 46122895469,
+        "job": 140911044205,
+        "archive": 15253554975,
+        "inner_sha256": "9aaa56b8a40709cb288f72bbaaf886b6e64c2f384c510b6531be9bf2c027eaa9",
+        "result": "PASS extracted and clean rebuild at exact author pin; not new cumulative head"
+      },
+      "target": "author PASS; independent M4 NOT RUN"
+    },
+    {
+      "pr": 19,
+      "head": "e57f1bc20de0924ec976ff6abce7b5cae903f1a2",
+      "tree": "f4bfd8ca1acde6be053c7a2a08e53a857d9f86eb",
+      "path": "instruments/fm1-ports/chronomorph/",
+      "author_run": 46125662215,
+      "author_jobs_passed": 3,
+      "windows_artifact": 15254564233,
+      "target_artifact": 15255493687,
+      "independent_qa": "M4 pending; frozen M3 independently passed Windows job 140911044205, source a42f33ecd37628fc6db64f0f0ffafc333f82af6d; archive 15254076393. M4 fixes held-gesture panic; do not transfer M3 PASS."
     }
   ],
   "workflow_overrides": [
     ".github/workflows/phasespace.yml",
     ".github/workflows/port-xenoresonator.yml",
-    ".github/workflows/chronogrid.yml"
+    ".github/workflows/chronogrid.yml",
+    ".github/workflows/port-chronomorph.yml"
   ],
   "integration_gate": "PENDING_NEW_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
@@ -71,12 +88,23 @@
   "changed_source_paths": [
     "instruments/chronogrid/README.md",
     "instruments/chronogrid/core.hpp",
-    "instruments/chronogrid/replay.cpp"
+    "instruments/chronogrid/replay.cpp",
+    "instruments/fm1-ports/chronomorph/README.md",
+    "instruments/fm1-ports/chronomorph/core.hpp",
+    "instruments/fm1-ports/chronomorph/platformio.ini",
+    "instruments/fm1-ports/chronomorph/replay.cpp",
+    "instruments/fm1-ports/chronomorph/runtime.hpp",
+    "instruments/fm1-ports/chronomorph/runtime_test.cpp",
+    "instruments/fm1-ports/chronomorph/target/main.cpp",
+    "instruments/fm1-ports/chronomorph/target_gate.hpp",
+    "instruments/fm1-ports/chronomorph/target_gate_test.cpp",
+    "instruments/fm1-ports/chronomorph/windows.cpp"
   ],
   "repairs": [
     "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence",
     "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair.",
-    "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow."
+    "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow.",
+    "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
@@ -134,5 +162,26 @@
       "grid": "153e6bbd563242c9bc8bbeda47d1e40158877d41"
     },
     "limitation": "Older frozen M4/M4/M1 sources, not M2/M3 cumulative integration or physical execution"
+  },
+  "checkpoint005": {
+    "head": "7138c7769e2c8c25ae519eca4485f15bd697aaf9",
+    "tree": "7b9353946ad7527c44ea0e2a9bd455b9a8fd2a88",
+    "author_integration_runs": [
+      46121560404,
+      46121560329,
+      46121560314
+    ],
+    "jobs_passed": 11,
+    "windows_artifacts": [
+      15253913164,
+      15254206319,
+      15254191607
+    ],
+    "target_artifacts": [
+      15253833300,
+      15253953106,
+      15254251090
+    ],
+    "artifact_verification": "GitHub metadata/digests and job conclusions; not direct archive extraction"
   }
 }
