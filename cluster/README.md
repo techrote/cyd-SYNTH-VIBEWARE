@@ -408,3 +408,36 @@ workload/cadence and retain matched native lattice tests separately.
 The outage label is not proof of disconnect/rejoin. No hardware measurements
 or audio claims are generated. The four synthetic unit tests run on both
 host platforms and the extracted Windows package.
+
+## M26: source-only REACTION clock-sink producer
+
+The opt-in portable Producer connects the existing Voice to the P14 ClockSink
+contract (same repository, exact b7ad6410eca359603195634059cb2e9b2cabc4ec,
+clock_sink.hpp blob 0cc9887b6325cf79b414d5ef026c4c20946bfbf8).
+No platform sources are copied or changed. Explicit arm, two 128-sample
+blocks to prime, at most one block per pump and at most 256 queued samples
+(10.667 ms nominal at 24 kHz), no autonomous rearm. Mute, stale control
+(120 ms) or observed sink fault invalidate the queued data; rearm requires
+acknowledgment and a new explicit user action. The panel owner must call
+refresh only after servicing real presentation/control; pump cannot extend
+the lease. This is not an asynchronous watchdog; if the panel ceases to run,
+the sink's starvation behavior is separate. Same-core serialized producer
+and non-reentrant sink tick only. Explicit mute discards immediately at the
+software boundary; no claim of analog silence.
+
+The optional native fixture uses actual Voice and exact P14 sink with a
+synthetic spatial image and moving palettes/focus/colour. It compares 51,200
+ordered encoded samples, checks prime/refill, wraparound expiry, queue flush
+and starvation/rearm. No actual simulation/network/ISR/SPI interleaving is
+tested here. Build with CMake CLUSTER_CLOCK_SINK_INCLUDE pointing to the
+pinned contract directory, or compile reaction_producer_test.cpp with
+C++17 and that include directory. Dedicated CI stages the immutable P14
+checkout and checks its blob hash; standard standalone builds need no
+platform dependency. This fixture is not shipped as an embedded audio
+profile or added to the existing Windows audition archive.
+
+P15 target compile succeeded but its callback inspection job failed; PLATFORM
+owns repair and transitive ISR/clock review. No timer/DAC enablement, target
+adoption, physical acceptance or flashing. Next: after reviewed authorization,
+integrate producer with the actual checkpoint panel's local touch/presentation
+loop and measure strip/pump timing and starvation before enabling audio.

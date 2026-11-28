@@ -16,7 +16,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ad6410eca359603195634059cb2e9b2cabc4ec
+          path: platform-contract
+          persist-credentials: false
+      - shell: bash
+        run: |
+          test "$(git -C platform-contract rev-parse HEAD)" = b7ad6410eca359603195634059cb2e9b2cabc4ec
+          test "$(git hash-object platform-contract/platform/dac-lifecycle/clock_sink.hpp)" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+      - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCLUSTER_CLOCK_SINK_INCLUDE="${{ github.workspace }}/platform-contract/platform/dac-lifecycle"
       - run: cmake --build build/cluster --config Release
       - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
       - run: python cluster/checkpoint_capture_test.py
@@ -243,6 +252,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: b7ad6410eca359603195634059cb2e9b2cabc4ec
+          path: platform-contract
+          persist-credentials: false
+      - shell: bash
+        run: |
+          test "$(git -C platform-contract rev-parse HEAD)" = b7ad6410eca359603195634059cb2e9b2cabc4ec
+          test "$(git hash-object platform-contract/platform/dac-lifecycle/clock_sink.hpp)" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -fsanitize=address,undefined -fno-sanitize-recover=all -Iplatform-contract/platform/dac-lifecycle cluster/reaction_producer_test.cpp -o producer_sanitized
+      - run: ./producer_sanitized
+
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/native.cpp -o cluster_sanitized
       - run: ./cluster_sanitized
         env:
