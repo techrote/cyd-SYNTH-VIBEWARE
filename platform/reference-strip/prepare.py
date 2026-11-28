@@ -1,22 +1,39 @@
-"""Prepare opt-in consumer only in a disposable checkout of exact PHASESPACE M3."""
+"""Prepare opt-in reference only in a disposable exact M3 or M4 checkout."""
 from pathlib import Path
 import hashlib, shutil, sys, subprocess
 
 root = Path(sys.argv[1]).resolve()
-pin = "0139740e3db44496a779d6629b424397f9f53dfb"
-assert subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() == pin
+pins = {
+    "0139740e3db44496a779d6629b424397f9f53dfb": ("50b8bb909b0c54480bf6a1180d830083ba4cbdaa", "9a854bb0822449f905f7b247ec872daa3466db63"),
+    "072ede0c2909836f90639d2112ea3786d770795d": ("6b254f4da1a876f1cbd73e08d557ba5c82f29f8f", "40ff5073b6407ccf2ba734bbb6b1a75fa5c41bb0"),
+}
+pin = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+if pin not in pins:
+    raise RuntimeError("unsupported exact consumer revision")
+m4 = pin == "072ede0c2909836f90639d2112ea3786d770795d"
 base = root / "instruments/phasespace"
 def blob(path):
-    # Git Windows worktrees may use CRLF; compare canonical LF source blobs.
     data = path.read_bytes().replace(b"\r\n", b"\n")
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
-assert blob(base / "core.hpp") == "50b8bb909b0c54480bf6a1180d830083ba4cbdaa"
-assert blob(base / "firmware/src/main.cpp") == "becd2a5871a93ecf94c469b49a6c311bf748f956"
-assert blob(base / "windows.cpp") == "0a9ba2efa645971a50af0a318defec9634a89dd3"
-assert blob(base / "replay.cpp") == "9a854bb0822449f905f7b247ec872daa3466db63"
+expected = {
+    "core.hpp": pins[pin][0],
+    "replay.cpp": pins[pin][1],
+    "firmware/src/main.cpp": "becd2a5871a93ecf94c469b49a6c311bf748f956",
+    "windows.cpp": "0a9ba2efa645971a50af0a318defec9634a89dd3",
+    "CMakeLists.txt": "eb4e0b1449c8633c14a25eeaba624da1aaf0486d",
+    "firmware/platformio.ini": "114d8a1de1f12f6444c6ea7004768e44bc6e46b6",
+}
+for path, sha in expected.items():
+    if blob(base / path) != sha:
+        raise RuntimeError(f"unexpected source blob: {path}")
 here = Path(__file__).resolve().parent
+for name in ("strip.hpp", "strip_test.cpp", "topology_test.cpp"):
+    if (base / name).exists():
+        raise RuntimeError(f"refusing to overwrite {name}")
 shutil.copyfile(here / "strip.hpp", base / "strip.hpp")
 shutil.copyfile(here / "strip_test.cpp", base / "strip_test.cpp")
+if m4:
+    shutil.copyfile(here / "topology_test.cpp", base / "topology_test.cpp")
 def edit(path, pairs):
     s = path.read_text(encoding="utf-8")
     for a,b in pairs:
@@ -42,4 +59,6 @@ edit(base / "windows.cpp", [
 ])
 with (base / "CMakeLists.txt").open("a", encoding="utf-8") as f:
     f.write("\nadd_executable(platform_strip_test strip_test.cpp)\nadd_test(NAME platform_strip_test COMMAND platform_strip_test)\n")
-print("Prepared disposable exact-M3 consumer; no ref writes.")
+    if m4:
+        f.write("\nadd_executable(platform_topology_test topology_test.cpp)\nadd_test(NAME platform_topology_test COMMAND platform_topology_test)\n")
+print(f"Prepared disposable exact consumer {pin}; no ref writes.")

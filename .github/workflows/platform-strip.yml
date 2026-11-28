@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          ref: 0139740e3db44496a779d6629b424397f9f53dfb
+          ref: 072ede0c2909836f90639d2112ea3786d770795d
           path: consumer
       - uses: actions/setup-python@v5
         with:
@@ -32,6 +32,8 @@ jobs:
           build/platform_strip_test bench | tee strip-benchmark.txt
           clang++ -std=c++17 -O1 -g -fsanitize=address,undefined consumer/instruments/phasespace/strip_test.cpp -o strip-sanitized
           ./strip-sanitized
+          clang++ -std=c++17 -O1 -g -fsanitize=address,undefined consumer/instruments/phasespace/topology_test.cpp -o topology-sanitized
+          ./topology-sanitized
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -40,13 +42,17 @@ jobs:
           Copy-Item build/Release/phasespace.exe 'strip package'
           Copy-Item build/Release/phasespace_replay.exe 'strip package'
           Copy-Item build/Release/platform_strip_test.exe 'strip package'
+          Copy-Item build/Release/platform_topology_test.exe 'strip package'
           git rev-parse HEAD | Set-Content 'strip package/platform-source.txt'
           git -C consumer rev-parse HEAD | Set-Content 'strip package/consumer-base.txt'
           Copy-Item platform/reference-strip/README.md 'strip package'
+          Copy-Item platform/reference-strip/P2.md 'strip package'
           Compress-Archive -Path 'strip package/*' -DestinationPath platform-strip-windows.zip
           Expand-Archive platform-strip-windows.zip 'extracted strip'
           & './extracted strip/platform_strip_test.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Pixel replay failed' }
+          & './extracted strip/platform_topology_test.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Topology replay failed' }
           & './extracted strip/phasespace_replay.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Core replay failed' }
           & './extracted strip/phasespace.exe' --smoke
@@ -55,7 +61,7 @@ jobs:
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: platform-strip-windows-candidate
+          name: platform-strip-m4-windows-candidate
           path: |
             platform-strip-windows.zip
             platform-strip-windows.sha256
@@ -66,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          ref: 0139740e3db44496a779d6629b424397f9f53dfb
+          ref: 072ede0c2909836f90639d2112ea3786d770795d
           path: consumer
       - uses: actions/setup-python@v5
         with:
@@ -84,6 +90,6 @@ jobs:
           sha256sum consumer/instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.elf > target-receipt/elf-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: platform-strip-target-map-not-installable
+          name: platform-strip-m4-target-map-not-installable
           path: target-receipt/
           if-no-files-found: error
