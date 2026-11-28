@@ -83,6 +83,8 @@ jobs:
           if-no-files-found: error
   target:
     runs-on: ubuntu-24.04
+    env:
+      PLATFORMIO_CORE_DIR: ${{ runner.temp }}/pio-xenoresonator
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,8 +92,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install platformio==6.1.18
-      - run: pio run -d instruments/fm1-ports/xenoresonator
+      - name: Bootstrap pinned target host dependencies
+        run: |
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          python -c 'from intelhex import IntelHex; from importlib.metadata import version; assert version("intelhex") == "2.3.0"'
+      - run: python -m platformio run -d instruments/fm1-ports/xenoresonator
       - env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |

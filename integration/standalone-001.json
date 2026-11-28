@@ -1,20 +1,32 @@
 {
-  "schema": 3,
+  "schema": 4,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
-    "head": "724d4d2251d9f190e1c412432594239ccd8325fd",
-    "tree": "3a283affa72cff41b00c8a2d6a1ccd72b2f5394f",
+    "head": "f5018bbda1641ae547a2b1931fbbf508df17ccdd",
+    "tree": "cb2adb29baafd3b917cc885156d2340557f1c62a",
     "author_integration_runs": [
-      46108123155,
-      46108123157
+      46112578478,
+      46112578493,
+      46112578487
     ],
     "windows_artifacts": [
-      15248417526,
-      15248387458
+      15249913734,
+      15250960010,
+      15250151979
     ],
-    "independent_qa_run": 46109559756,
-    "disposition": "preserve M4 and prior M3 pins; no substitution"
+    "target_artifacts": [
+      15249923809,
+      15249997803,
+      15250426688
+    ],
+    "independent_target_qa": {
+      "run": 46113931111,
+      "phase": "PASS compile/link",
+      "xeno": "FAIL missing intelhex in shared PlatformIO environment",
+      "grid": "NOT RUN"
+    },
+    "disposition": "preserve all frozen pins"
   },
   "sources": [
     {
@@ -33,12 +45,16 @@
     },
     {
       "pr": 18,
-      "head": "153e6bbd563242c9bc8bbeda47d1e40158877d41",
-      "tree": "4127541750c6ea32150ee33bdac9369aa2a054f9",
+      "head": "c56e129d174dd942dd2aa50f0ae1808083e4c857",
+      "tree": "ab2c94539e70de8f4addb8c8af254f0b1993ae27",
       "path": "instruments/chronogrid/",
-      "author_run": 46108951057,
-      "windows_artifact": 15248384121,
-      "independent_qa_run": 46109559756
+      "author_run": 46113371505,
+      "independent_native_qa": {
+        "head": "cb17fff5ec2141c4b17873dc2c5ac9612876c8c3",
+        "checks_each": 2497105,
+        "media_exact": 15,
+        "windows": "pending exact M2 QA"
+      }
     }
   ],
   "workflow_overrides": [
@@ -48,19 +64,16 @@
   ],
   "integration_gate": "PENDING_NEW_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
-  "qa_gate": "PENDING_NEW_EXACT_HEAD_PACKAGES",
+  "qa_gate": "PENDING_EXACT_HEAD_WINDOWS_AND_TARGET_QA",
   "owner_gate": "HOLD",
   "changed_source_paths": [
-    "instruments/chronogrid/CMakeLists.txt",
     "instruments/chronogrid/README.md",
     "instruments/chronogrid/core.hpp",
-    "instruments/chronogrid/firmware/platformio.ini",
-    "instruments/chronogrid/firmware/src/main.cpp",
-    "instruments/chronogrid/replay.cpp",
-    "instruments/chronogrid/windows.cpp"
+    "instruments/chronogrid/replay.cpp"
   ],
   "repairs": [
-    "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence"
+    "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence",
+    "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
@@ -70,5 +83,19 @@
       15246670783
     ],
     "qa_batch003_head": "1509096984bbdecef3943b808f700376686ee5ab"
+  },
+  "previous_checkpoint": {
+    "head": "724d4d2251d9f190e1c412432594239ccd8325fd",
+    "tree": "3a283affa72cff41b00c8a2d6a1ccd72b2f5394f",
+    "author_integration_runs": [
+      46108123155,
+      46108123157
+    ],
+    "windows_artifacts": [
+      15248417526,
+      15248387458
+    ],
+    "independent_qa_run": 46109559756,
+    "disposition": "preserve M4 and prior M3 pins; no substitution"
   }
 }
