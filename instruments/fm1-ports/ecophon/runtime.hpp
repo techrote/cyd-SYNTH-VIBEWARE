@@ -61,9 +61,12 @@ struct Runtime {
     Touch touch;
     bool inhibited=false;
     uint32_t last=0;
+    // Audio-owner-only monotonic generation; a backend must drain on change,
+    // even when a queued release/restart has already unmuted the engine.
+    uint32_t panic_epoch=0;
     Runtime(){engine.reset(0,42);engine.panic();}
     static bool stale(uint32_t now,uint32_t then){const auto age=uint32_t(now-then);return age>=lease_ms&&age<0x80000000u;}
-    void panic(){engine.panic();touch.release();inhibited=true;}
+    void panic(){++panic_epoch;engine.panic();touch.release();inhibited=true;}
     void pump(Input& in,uint32_t now){
         if(in.recover()){panic();return;}
         if(touch.held&&stale(now,last))panic();

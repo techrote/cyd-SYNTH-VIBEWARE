@@ -4,6 +4,7 @@
 #include <windowsx.h>
 #include <mmsystem.h>
 #include <thread>
+#include <cstdio>
 #include "runtime.hpp"
 using namespace ecophon;
 static Input input;
@@ -11,6 +12,7 @@ static Views views;
 static std::atomic<bool> closing{false}, failed{false}, played{false}, changed{false}, stopped{false}, restarted{false};
 static bool smoke=false,held=false,pendingRelease=false;
 static int x=0,y=0,frames=0,timers=0;
+static bool paintedPanic=false,smokeViolation=false;
 static void generate(Runtime& rt,int16_t* pcm){
     rt.render(input,GetTickCount(),pcm,128);
     views.publish(rt.engine);
@@ -21,7 +23,6 @@ static void generate(Runtime& rt,int16_t* pcm){
 }
 static void audio(){
     Runtime rt;views.publish(rt.engine);
-    if(smoke){int16_t pcm[128];while(!closing){generate(rt,pcm);Sleep(5);}return;}
     WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannels=1;fmt.nSamplesPerSec=rate;
     fmt.wBitsPerSample=16;fmt.nBlockAlign=2;fmt.nAvgBytesPerSec=rate*2;
     HWAVEOUT dev=nullptr;
@@ -32,14 +33,25 @@ static void audio(){
         if(waveOutPrepareHeader(dev,&hdr[i],sizeof(hdr[i]))!=MMSYSERR_NOERROR){failed=true;break;}
         ++prepared;
     }
+    uint32_t serviced=rt.panic_epoch;
+    auto drain=[&](){
+        if(serviced==rt.panic_epoch)return true;
+        if(waveOutReset(dev)!=MMSYSERR_NOERROR){failed=true;return false;}
+        serviced=rt.panic_epoch;return true;
+    };
     while(!closing&&!failed){
+        // Service emergencies even when every hardware buffer is busy.
+        if(input.fault.load(std::memory_order_acquire)){
+            rt.pump(input,GetTickCount());views.publish(rt.engine);
+            if(!drain())break;
+        }
         bool work=false;
         for(unsigned i=0;i<prepared&&!closing;++i){
             if(hdr[i].dwFlags&WHDR_INQUEUE)continue;
-            const bool wasMuted=rt.engine.muted;
             generate(rt,pcm[i]);
-            // Backend drain, outside the portable runtime; no claim about physical latency.
-            if(!wasMuted&&rt.engine.muted&&waveOutReset(dev)!=MMSYSERR_NOERROR){failed=true;break;}
+            // Compare the durable audio-owner generation after render, not
+            // the pending flag or final muted state. Driver I/O stays outside DSP.
+            if(!drain())break;
             if(waveOutWrite(dev,&hdr[i],sizeof(hdr[i]))!=MMSYSERR_NOERROR){failed=true;break;}
             work=true;
         }
@@ -85,15 +97,27 @@ static LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM a,LPARAM b){
     case WM_TIMER:
         ++timers;
         if(smoke){
-            if(timers==3)SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,position(w,20,10));
-            if(timers==5)SendMessageA(w,WM_LBUTTONUP,0,0);
-            if(timers==12)SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,position(w,300,150));
-            if(timers==14)SendMessageA(w,WM_MOUSEMOVE,MK_LBUTTON,position(w,310,150));
-            if(timers==24)SendMessageA(w,WM_MOUSEMOVE,MK_LBUTTON,position(w,300,230));
-            if(timers==28)SendMessageA(w,WM_LBUTTONUP,0,0);
-            if(timers==40)SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,position(w,180,10));
-            if(timers==43)SendMessageA(w,WM_LBUTTONUP,0,0);
+            // Deterministic actual Win32 message and PCM replay. Do not rely on
+            // a background Sleep(5) worker being scheduled between GUI timers.
+            static Runtime replay;
+            auto down=[&](int px,int py){SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,position(w,px,py));};
+            auto move=[&](int px,int py){SendMessageA(w,WM_MOUSEMOVE,MK_LBUTTON,position(w,px,py));};
+            auto up=[&](){SendMessageA(w,WM_LBUTTONUP,0,0);};
+            send();
+            if(timers==3){down(20,10);up();}
+            if(timers==12){down(300,150);move(310,150);up();}
+            if(timers==24){down(200,150);move(300,230);}
+            if(timers==40){down(180,10);up();}
+            int16_t pcm[128];
+            for(unsigned i=0;i<3;++i){
+                generate(replay,pcm);
+                if(timers>=24&&timers<40&&(!replay.engine.muted||
+                    std::any_of(pcm,pcm+128,[](int16_t v){return v!=0;})))smokeViolation=true;
+            }
+            if(timers==24)up(); // release only after emergency acknowledgement
+            InvalidateRect(w,nullptr,FALSE);UpdateWindow(w);
             if(timers==68){DestroyWindow(w);return 0;}
+            return 0;
         }
         send();InvalidateRect(w,nullptr,FALSE);return 0;
     case WM_PAINT:{
@@ -108,7 +132,7 @@ static LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM a,LPARAM b){
         bi.bmiHeader.biWidth=320;bi.bmiHeader.biHeight=-240;bi.bmiHeader.biPlanes=1;
         bi.bmiHeader.biBitCount=32;bi.bmiHeader.biCompression=BI_RGB;
         const int drawn=StretchDIBits(dc,0,0,r.right,r.bottom,0,0,320,240,rgb,&bi,DIB_RGB_COLORS,SRCCOPY);
-        if(drawn>0)++frames;
+        if(drawn>0){++frames;if(smoke&&timers>=24&&timers<40&&view.muted)paintedPanic=true;}
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(255,255,255));
         const char* scenes[]={"Mutualism","Scarcity","Bloom","Frozen"};
         const char* memories[]={"Capture A","Capture B","Recall A","Recall B"};
@@ -131,9 +155,14 @@ int main(int argc,char** argv){
     if(!RegisterClassA(&wc))return 2;
     auto window=CreateWindowA(wc.lpszClassName,"Ecophon CYD - acoustic habitats",WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,100,660,530,nullptr,nullptr,instance,nullptr);
     if(!window)return 3;
-    std::thread worker(audio);MSG msg{};int result;
+    std::thread worker;if(!smoke)worker=std::thread(audio);MSG msg{};int result;
     while((result=GetMessageA(&msg,nullptr,0,0))>0){TranslateMessage(&msg);DispatchMessageA(&msg);}
-    closing=true;worker.join();
+    closing=true;if(worker.joinable())worker.join();
     if(result<0||failed)return 4;
-    return smoke&&(!played||!changed||!stopped||!restarted||frames<5)?5:0;
+    if(smoke){
+        std::fprintf(stderr,"Ecophon graphical replay: played=%d changed=%d stopped=%d restarted=%d frames=%d panic_frame=%d violation=%d\n",
+            int(played.load()),int(changed.load()),int(stopped.load()),int(restarted.load()),frames,int(paintedPanic),int(smokeViolation));
+        if(!played||!changed||!stopped||!restarted||frames<5||!paintedPanic||smokeViolation)return 5;
+    }
+    return 0;
 }
