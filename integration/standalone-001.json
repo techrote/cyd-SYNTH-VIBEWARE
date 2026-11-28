@@ -1,5 +1,5 @@
 {
-  "schema": 4,
+  "schema": 5,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
@@ -45,15 +45,17 @@
     },
     {
       "pr": 18,
-      "head": "c56e129d174dd942dd2aa50f0ae1808083e4c857",
-      "tree": "ab2c94539e70de8f4addb8c8af254f0b1993ae27",
+      "head": "9f7b1ff5bead8d718befd1284b6bd4ae1a4b67ed",
+      "tree": "9f7b1ff5bead8d718befd1284b6bd4ae1a4b67ed",
       "path": "instruments/chronogrid/",
-      "author_run": 46113371505,
+      "author_run": 46117794221,
       "independent_native_qa": {
-        "head": "cb17fff5ec2141c4b17873dc2c5ac9612876c8c3",
-        "checks_each": 2497105,
-        "media_exact": 15,
-        "windows": "pending exact M2 QA"
+        "head": "a50080a29c1fef7a69d3d0bc475c4c01934e94b2",
+        "checks_each": 2696623,
+        "media_exact": 18,
+        "archived_ratio_media_exact": 3,
+        "windows": "NOT RUN independently at checkpoint",
+        "target": "NOT RUN independently at checkpoint"
       }
     }
   ],
@@ -73,7 +75,8 @@
   ],
   "repairs": [
     "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence",
-    "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair."
+    "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair.",
+    "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
@@ -97,5 +100,39 @@
     ],
     "independent_qa_run": 46109559756,
     "disposition": "preserve M4 and prior M3 pins; no substitution"
+  },
+  "checkpoint004": {
+    "head": "ed61c3d0bde350703c16c791ef1d07056fc45552",
+    "tree": "ed61c3d0bde350703c16c791ef1d07056fc45552",
+    "author_integration_runs": [
+      46117111430,
+      46117111434,
+      46117111378
+    ],
+    "jobs_passed": 11,
+    "windows_artifacts": [
+      15252595070,
+      15251423308,
+      15252207682
+    ],
+    "target_artifacts": [
+      15251907244,
+      15251534715,
+      15252277650
+    ],
+    "artifact_verification": "GitHub metadata/digests and successful jobs; not independent extracted archive verification"
+  },
+  "independent_target_recovery": {
+    "qa_head": "a50080a29c1fef7a69d3d0bc475c4c01934e94b2",
+    "run": 46118660237,
+    "job": 140898051626,
+    "artifact": 15252966833,
+    "digest": "sha256:927523a19d0b03850a635b73081570a70c17b810420f4ea6abfe2141de0eaad3",
+    "result": "PASS all three compile/link and receipt manifests; actual job log inspected",
+    "source_pins": {
+      "phase_xeno": "724d4d2251d9f190e1c412432594239ccd8325fd",
+      "grid": "153e6bbd563242c9bc8bbeda47d1e40158877d41"
+    },
+    "limitation": "Older frozen M4/M4/M1 sources, not M2/M3 cumulative integration or physical execution"
   }
 }

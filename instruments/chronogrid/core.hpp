@@ -7,6 +7,9 @@
 namespace gridseq {
 constexpr unsigned rate=24000,block=128,width=320,height=240,tracks=4,denom=rate*60;
 constexpr std::array<unsigned,tracks> lengths{16,12,10,7},divisions{4,4,3,5};
+constexpr std::array<unsigned,6> ratios{2,3,4,5,6,8};
+inline unsigned safeRatio(unsigned n){for(unsigned v:ratios)if(v==n)return v;return 4;}
+inline unsigned nextRatio(unsigned n){for(unsigned i=0;i<ratios.size();++i)if(ratios[i]==n)return ratios[(i+1)%ratios.size()];return 4;}
 constexpr std::array<uint16_t,tracks> colors{0xf986,0x57df,0xff26,0xb61f};
 struct Scene{const char* name;std::array<uint16_t,tracks> masks;unsigned bpm;};
 inline constexpr std::array<Scene,6> scenes{{
@@ -19,13 +22,13 @@ inline constexpr std::array<Scene,6> scenes{{
 }};
 struct Control{
  std::array<uint16_t,tracks> masks=scenes[0].masks;unsigned bpm=scenes[0].bpm,mute=0,scene=0,epoch=0;bool play=false;uint32_t seq=0;
- std::array<uint16_t,tracks> accents{};unsigned accentEdit=0;
+ std::array<uint16_t,tracks> accents{};unsigned accentEdit=0;std::array<unsigned,tracks> divs=divisions;
 };
 // Single UI writer, single audio reader. All payload and generation words are
 // sequentially consistent atomics; one bounded read attempt, retain prior state on collision.
 static_assert(std::atomic<uint32_t>::is_always_lock_free,"32-bit atomics required");
 class Exchange{
- std::atomic<uint32_t> seq_{0},a_{0},b_{0},meta_{0},accentA_{0},accentB_{0};
+ std::atomic<uint32_t> seq_{0},a_{0},b_{0},meta_{0},accentA_{0},accentB_{0},ratioWord_{0};
 public:
  Exchange(){publish(Control{});}
  void publish(const Control& c){
@@ -33,12 +36,13 @@ public:
   b_.store(uint32_t(c.masks[2])|(uint32_t(c.masks[3])<<16));
   accentA_.store(uint32_t(c.accents[0])|(uint32_t(c.accents[1])<<16));
   accentB_.store(uint32_t(c.accents[2])|(uint32_t(c.accents[3])<<16));
+  uint32_t rw=0;for(unsigned t=0;t<tracks;++t)rw|=safeRatio(c.divs[t])<<(4*t);ratioWord_.store(rw);
   meta_.store((std::clamp(c.bpm,50u,180u))|((c.mute&15u)<<8)|(uint32_t(c.play)<<12)|((c.scene&7u)<<13)|((c.epoch&255u)<<16)|((c.accentEdit&15u)<<24));seq_.fetch_add(1);
  }
  bool read(Control& c)const{
   uint32_t s=seq_.load();if(s&1u)return false;
-  uint32_t a=a_.load(),b=b_.load(),m=meta_.load(),aa=accentA_.load(),ab=accentB_.load();if(s!=seq_.load())return false;
-  c.masks={uint16_t(a),uint16_t(a>>16),uint16_t(b),uint16_t(b>>16)};c.bpm=m&255u;c.mute=(m>>8)&15u;c.play=(m>>12)&1u;c.scene=(m>>13)&7u;c.epoch=(m>>16)&255u;c.seq=s;c.accents={uint16_t(aa),uint16_t(aa>>16),uint16_t(ab),uint16_t(ab>>16)};c.accentEdit=(m>>24)&15u;return true;
+  uint32_t a=a_.load(),b=b_.load(),m=meta_.load(),aa=accentA_.load(),ab=accentB_.load(),rw=ratioWord_.load();if(s!=seq_.load())return false;
+  c.masks={uint16_t(a),uint16_t(a>>16),uint16_t(b),uint16_t(b>>16)};c.bpm=m&255u;c.mute=(m>>8)&15u;c.play=(m>>12)&1u;c.scene=(m>>13)&7u;c.epoch=(m>>16)&255u;c.seq=s;c.accents={uint16_t(aa),uint16_t(aa>>16),uint16_t(ab),uint16_t(ab>>16)};c.accentEdit=(m>>24)&15u;for(unsigned t=0;t<tracks;++t)c.divs[t]=safeRatio((rw>>(4*t))&15u);return true;
  }
 };
 class Surface{
@@ -51,8 +55,8 @@ public:
   if(!down){held_=paint_=blocked_=false;return;}if(blocked_)return;
   x=std::clamp(x,0,319);y=std::clamp(y,0,239);
   if(!held_){held_=true;
-   if(y<24){c.scene=std::min(unsigned(x)*6/320,5u);c.masks=scenes[c.scene].masks;c.bpm=scenes[c.scene].bpm;c.accents.fill(0);c.accentEdit=0;}
-   else if(y<200){lane_=unsigned(y-24)/44;if(x<24)c.mute^=1u<<lane_;else if(x<48)c.accentEdit^=1u<<lane_;else{paint_=true;last_=unsigned(x-48)*lengths[lane_]/272;add_=!(((c.accentEdit&(1u<<lane_))?c.accents[lane_]:c.masks[lane_])&(1u<<last_));cell(last_);}}
+   if(y<24){c.scene=std::min(unsigned(x)*6/320,5u);c.masks=scenes[c.scene].masks;c.bpm=scenes[c.scene].bpm;c.accents.fill(0);c.accentEdit=0;c.divs=divisions;}
+   else if(y<200){lane_=unsigned(y-24)/44;if(x<24)c.mute^=1u<<lane_;else if(x<48){if((y-24)%44<22)c.accentEdit^=1u<<lane_;else c.divs[lane_]=nextRatio(c.divs[lane_]);}else{paint_=true;last_=unsigned(x-48)*lengths[lane_]/272;add_=!(((c.accentEdit&(1u<<lane_))?c.accents[lane_]:c.masks[lane_])&(1u<<last_));cell(last_);}}
    else if(x<64){c.play=!c.play;c.epoch=(c.epoch+1)&255u;}
    else if(x<128)c.epoch=(c.epoch+1)&255u;
    else if(x<192)c.bpm=std::max(50u,c.bpm-4);
@@ -84,12 +88,13 @@ public:
   if(!c.play){expired_=false;stop();}else if(changed){expired_=false;stop();}
   if(c.play&&!expired_&&!running_&&age_<rate/4){running_=true;voices_.fill(Voice{});phase_.fill(0);step_.fill(0);for(unsigned t=0;t<tracks;++t)hit(c,t);}
   const unsigned bpm=std::clamp(c.bpm,50u,180u);
+  std::array<unsigned,tracks> increment{};for(unsigned t=0;t<tracks;++t)increment[t]=bpm*safeRatio(c.divs[t]);
   for(std::size_t i=0;i<n;++i){
    if(age_<rate)++age_;
    if(running_&&age_>rate/4){expired_=true;stop();}
    int sum=0;if(running_){for(unsigned t=0;t<tracks;++t){
     if(c.mute&(1u<<t))voices_[t].env=0;
-    sum+=voices_[t].sample(t);phase_[t]+=bpm*divisions[t];if(phase_[t]>=denom){phase_[t]-=denom;step_[t]=(step_[t]+1)%lengths[t];hit(c,t);}
+    sum+=voices_[t].sample(t);phase_[t]+=increment[t];if(phase_[t]>=denom){phase_[t]-=denom;step_[t]=(step_[t]+1)%lengths[t];hit(c,t);}
    }}out[i]=int16_t(sum);
   }
   if(telemetry){uint32_t w=uint32_t(running_)<<16;for(unsigned t=0;t<tracks;++t)w|=step_[t]<<(4*t);telemetry->store(w,std::memory_order_release);}
@@ -105,7 +110,9 @@ inline void row(const Control& c,uint32_t playhead,unsigned y,uint16_t* dst){
  for(unsigned x=0;x<width;++x){uint16_t v=0x0842;
   if(y<24){unsigned s=x*6/320;v=s==c.scene?0x35ad:0x2104;if(y<3||y>20||x*6%320<12)v=0x0842;}
   else if(y<200){unsigned t=(y-24)/44,dy=(y-24)%44;uint16_t color=colors[t];if(x<48){v=c.mute&(1u<<t)?0x3186:color;if(x>=24)v=(c.accentEdit&(1u<<t))?0xffe0:0x3186;if(dy<5||dy>38||x<5||x>42||x==23||x==24)v=0x0842;
-    if(x>=30&&x<=36&&dy>=13&&dy<=30&&(x==33||dy==21))v=0xffff;}
+    if(x>=24&&dy>=22)v=0x3186;
+    if(x>=30&&x<=36&&dy>=8&&dy<=16&&(x==33||dy==12))v=0xffff;
+    if(x>=30&&x<36&&dy>=27&&dy<37&&digit(safeRatio(c.divs[t]),(x-30)/2,(dy-27)/2))v=0xffff;}
    else{unsigned k=(x-48)*lengths[t]/272;unsigned pos=(x-48)*lengths[t]%272;bool on=c.masks[t]&(1u<<k),head=(playhead&(1u<<16))&&((playhead>>(4*t))&15u)==k;
     if(dy>=4&&dy<=39&&pos>=lengths[t]&&pos<272-lengths[t]){v=on?(c.mute&(1u<<t)?0x4208:color):0x18e3;if((c.accents[t]&(1u<<k))&&dy>=15&&dy<=19)v=on?0xffe0:0x6300;if(head&&(dy<9||dy>34))v=0xffff;}
    }}else{unsigned b=x/64;v=b==0?(c.play?0x3d85:0x3186):b==4?0x9904:0x3186;if(y<204||y>236||x%64<3||x%64>60)v=0x0842;
