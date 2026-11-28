@@ -104,3 +104,41 @@ jobs:
           name: phosphor-windows-owner-candidate
           path: PHOSPHOR Windows.zip
           if-no-files-found: error
+  target:
+    if: github.event.pull_request.head.ref == 'touch/phosphor-001'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/phosphor
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native board session and compile-only CYD profile
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          cp platformio.ini target-receipts/
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror board_test.cpp -o board-test
+          ./board-test | tee target-receipts/native.log
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all board_test.cpp -o board-san
+          ./board-san | tee target-receipts/sanitized.log
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio --version > target-receipts/toolchain.txt
+          pio run -e cyd-phosphor-frontpanel 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > target-receipts/notice-hashes.txt
+          cp .pio/build/cyd-phosphor-frontpanel/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-phosphor-frontpanel/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phosphor-target-frontpanel-receipts-no-firmware
+          path: instruments/phosphor/target-receipts/
+          if-no-files-found: error
