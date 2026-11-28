@@ -6,8 +6,7 @@
 #include <array>
 #include <iostream>
 #include <cstring>
-#include "strip.hpp"
-#include "touch.hpp"
+#include "panel.hpp"
 using namespace grimoire;
 namespace {
 Engine engine;
@@ -17,6 +16,7 @@ constexpr int blocks=4, block=128;
 std::array<std::array<std::int16_t,block>,blocks> audio{};
 std::array<WAVEHDR,blocks> headers{};
 std::array<std::uint32_t,width*height> frame{};
+PanelRaster rasterizer;
 std::array<std::uint16_t,width*8> strip{};
 bool smoke=false,failed=false;
 int paints=0; ULONGLONG last_paint=0;
@@ -27,21 +27,14 @@ bool open_audio(){WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannel
 Point mapped(HWND hwnd,int x,int y){RECT r{};GetClientRect(hwnd,&r);int w=std::max(1L,r.right),h=std::max(1L,r.bottom);return {x*width/w,y*height/h};}
 void pump(HWND hwnd){if(failed)return;if(touch.contact()&&!smoke){POINT p{};if(!(GetAsyncKeyState(VK_LBUTTON)&0x8000)||!GetCursorPos(&p)||!ScreenToClient(hwnd,&p)){emergency();}else {auto q=mapped(hwnd,p.x,p.y);if(touch.move(q.x,q.y))flush_audio();}}if(device){for(int i=0;i<blocks;++i){auto& h=headers[i];if(!(h.dwFlags&WHDR_INQUEUE)){engine.process(audio[i].data(),block);if(waveOutWrite(device,&h,sizeof(h))!=MMSYSERR_NOERROR){failed=true;emergency();break;}}}}const auto now=GetTickCount64();if(now-last_paint>=33){last_paint=now;InvalidateRect(hwnd,nullptr,FALSE);}}
 void raster(){
-    auto s=engine.snapshot();int dst_y=0;
+    rasterizer.begin(capture_panel(engine,touch));
     for(int y=0;y<height;y+=8){
-        if(!render_strip(s,y,8,strip.data())){failed=true;return;}
-        while(dst_y<height){
-            int sy=source_y(dst_y);
-            if(sy>=y+8)break;
-            if(sy>=0&&sy<y){failed=true;return;}
-            for(int x=0;x<width;++x){
-                auto c=sy<0?touch.toolbar_pixel(x,dst_y):strip[(sy-y)*width+x];
-                frame[dst_y*width+x]=((c>>11)*255/31<<16)|(((c>>5)&63)*255/63<<8)|((c&31)*255/31);
-            }
-            ++dst_y;
+        if(!rasterizer.render(y,8,strip.data())){failed=true;return;}
+        for(int i=0;i<width*8;++i){
+            const auto c=strip[i];
+            frame[y*width+i]=((c>>11)*255/31<<16)|(((c>>5)&63)*255/63<<8)|((c&31)*255/31);
         }
     }
-    if(dst_y!=height)failed=true;
 }
 LRESULT CALLBACK wnd(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){switch(msg){
 case WM_LBUTTONDOWN:if(!failed){auto p=mapped(hwnd,GET_X_LPARAM(lp),GET_Y_LPARAM(lp));if(touch.down(p.x,p.y))flush_audio();if(touch.contact())SetCapture(hwnd);}InvalidateRect(hwnd,nullptr,FALSE);return 0;

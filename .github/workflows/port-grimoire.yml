@@ -27,12 +27,16 @@ jobs:
           ./strip-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror touch_test.cpp -o touch-test
           ./touch-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror panel_test.cpp -o panel-test
+          ./panel-test
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all replay.cpp -o replay-san
           ./replay-san "sanitized media"
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all strip_test.cpp -o strip-san
           ./strip-san
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all touch_test.cpp -o touch-san
           ./touch-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all panel_test.cpp -o panel-san
+          ./panel-san
           diff -qr "native media" "sanitized media"
           (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -73,7 +77,8 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o "owner package/Grimoire.exe" -lwinmm -lgdi32 -luser32 -static
           g++ -std=c++17 -O2 -Wall -Wextra -Werror strip_test.cpp -o "owner package/strip-test.exe" -static
           g++ -std=c++17 -O2 -Wall -Wextra -Werror touch_test.cpp -o "owner package/touch-test.exe" -static
-          cp core.hpp strip.hpp touch.hpp replay.cpp strip_test.cpp touch_test.cpp windows.cpp README.md M2.md M3.md "owner package/"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror panel_test.cpp -o "owner package/panel-test.exe" -static
+          cp core.hpp strip.hpp touch.hpp panel.hpp replay.cpp strip_test.cpp touch_test.cpp panel_test.cpp windows.cpp README.md M2.md M3.md M4.md "owner package/"
           g++ --version > "owner package/TOOLCHAIN.txt"
           objdump -p "owner package/Grimoire.exe" | grep 'DLL Name:' > "owner package/IMPORTS.txt"
           if grep -Ei 'DLL Name: (libgcc|libstdc\+\+|libwinpthread)' "owner package/IMPORTS.txt"; then exit 1; fi
@@ -95,6 +100,7 @@ jobs:
           diff -qr media "reproduced media"
           ./strip-test.exe
           ./touch-test.exe
+          ./panel-test.exe
           ./Grimoire.exe --smoke
       - uses: actions/upload-artifact@v4
         with:
@@ -102,4 +108,37 @@ jobs:
           path: |
             instruments/fm1-ports/grimoire/Grimoire-Windows.zip
             instruments/fm1-ports/grimoire/Grimoire-Windows.sha256
+          if-no-files-found: error
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/grimoire
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and link digital-only CYD front-panel profile
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
+          cp platformio.ini target-receipts/
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio --version > target-receipts/toolchain.txt
+          pio run -e cyd-grimoire-frontpanel 2>&1 | tee target-receipts/build.log
+          pio pkg list > target-receipts/packages.txt
+          find .pio/libdeps -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > target-receipts/notice-hashes.txt
+          cp .pio/build/cyd-grimoire-frontpanel/firmware.map target-receipts/
+          sha256sum .pio/build/cyd-grimoire-frontpanel/firmware.elf > target-receipts/elf.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grimoire-target-frontpanel-receipts-no-firmware
+          path: instruments/fm1-ports/grimoire/target-receipts/
           if-no-files-found: error

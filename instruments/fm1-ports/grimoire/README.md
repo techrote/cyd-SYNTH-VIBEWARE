@@ -24,3 +24,6 @@ Windows compile candidate:
 
 ## Qualification
 Native local PASS; local sanitizers PASS. Hosted Linux/Windows and extracted graphical NOT RUN until actual CI completes. ESP32 compile/link, virtual target, independent QA, physical NOT RUN. Physical board, audio lifecycle, calibrated touch and timing remain HOLD. No firmware, no new shared runtime, no merge request. Next: close Windows CI, target adapter using independently reviewed audio lifecycle with PLATFORM, owner physical gate separately. Ecophon M4 existing author 3/3 PASS retained; P11 ISR/clock/startup/cleanup and independent physical gates tracked in #13/PR #21; no replacement of earlier pins.
+
+## M4 target front-panel milestone (digital only)
+The M3 exact author Windows/Linux qualification passed. M4 adds a common panel projection, a serialized board session and a source-only classic CYD front-panel compile candidate. No DAC/I2S/speaker audio output is enabled; digital PCM is generated and discarded. M4 is not playable on hardware yet. See M4.md for actual native results and the pending target/audio/physical gates. Prior M3 Windows audition remains valid for its exact source.
