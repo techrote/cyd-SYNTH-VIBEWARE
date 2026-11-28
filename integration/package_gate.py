@@ -19,19 +19,32 @@ def safe_name(name):
     return name
 
 
+def register_path(seen, name):
+    key = safe_name(name).casefold()
+    if key in seen:
+        raise ValueError(f'Case-colliding path: {name} and {seen[key]}')
+    seen[key] = name
+    return key
+
+
 def inventory(root, manifest):
+    if '/' in safe_name(manifest):
+        raise ValueError('Manifest must be a root filename')
+    if not root.is_dir() or root.is_symlink() or getattr(root, 'is_junction', lambda: False)():
+        raise ValueError('A real package directory is required')
     found = {}
+    seen = {}
     for path in root.rglob('*'):
         if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
             raise ValueError(f'Unexpected link: {path}')
-        name = safe_name(path.relative_to(root).as_posix())
+        name = path.relative_to(root).as_posix()
+        key = register_path(seen, name)
         if path.is_dir():
+            if key == manifest.casefold():
+                raise ValueError('Manifest path is a directory')
             continue
         if not path.is_file():
             raise ValueError(f'Not a regular file: {path}')
-        key = name.casefold()
-        if key in found:
-            raise ValueError(f'Case-colliding path: {name}')
         found[key] = name
     if manifest.casefold() in found and found.pop(manifest.casefold()) != manifest:
         raise ValueError('Manifest filename case mismatch')
@@ -110,7 +123,19 @@ def selftest():
         (root / 'extra.txt').unlink()
         (root / 'test.exe').write_bytes(b'changed')
         refuse('corrupted payload', lambda: verify(root, MANIFEST, 'gnu'))
-    print('PASS 3 positive and 9 negative package-gate fixtures')
+        (root / 'test.exe').write_bytes(b'b')
+        # Synthetic namespace checks run on Windows as well as case-sensitive hosts.
+        seen = {}
+        register_path(seen, 'media')
+        refuse('directory case alias', lambda: register_path(seen, 'MEDIA'))
+        refuse('nested manifest', lambda: verify(root, 'media/a.wav', 'gnu'))
+        manifest.unlink()
+        manifest.mkdir()
+        refuse('manifest directory', lambda: create(root, MANIFEST))
+        manifest.rmdir()
+        create(root, MANIFEST)
+        verify(root, MANIFEST, 'gnu')
+    print('PASS 4 positive and 12 negative package-gate fixtures')
 
 
 if __name__ == '__main__':
