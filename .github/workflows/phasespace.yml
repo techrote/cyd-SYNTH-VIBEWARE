@@ -1,0 +1,86 @@
+name: PHASESPACE author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/phasespace/**'
+      - '.github/workflows/phasespace.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S instruments/phasespace -B build/phase -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/phase --config Release
+      - run: ctest --test-dir build/phase -C Release --output-on-failure -V
+      - if: runner.os == 'Linux'
+        run: |
+          mkdir phase-media
+          build/phase/phasespace_replay phase-media
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phasespace-native-media
+          path: phase-media/
+          if-no-files-found: error
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'phase-package','phase-package/media' | Out-Null
+          Copy-Item build/phase/Release/phasespace.exe phase-package
+          Copy-Item build/phase/Release/phasespace_replay.exe phase-package
+          Copy-Item instruments/phasespace/README.md phase-package
+          git rev-parse HEAD | Set-Content phase-package/source-commit.txt
+          & ./phase-package/phasespace_replay.exe phase-package/media
+          if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
+          Compress-Archive -Path 'phase-package/*' -DestinationPath phasespace-windows.zip
+          Expand-Archive phasespace-windows.zip 'extracted phase'
+          & './extracted phase/phasespace_replay.exe'
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
+          & './extracted phase/phasespace.exe' --smoke
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted GDI smoke failed'}
+          (Get-FileHash phasespace-windows.zip -Algorithm SHA256).Hash | Set-Content phasespace-windows.sha256
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phasespace-windows
+          path: |
+            phasespace-windows.zip
+            phasespace-windows.sha256
+          if-no-files-found: error
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/phasespace/replay.cpp -o phase_sanitized
+      - run: ./phase_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+  target:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18
+      - run: pio run -d instruments/phasespace/firmware -e cyd-phasespace
+      - run: |
+          mkdir phase-target-evidence
+          pio pkg list -d instruments/phasespace/firmware > phase-target-evidence/toolchain.txt
+          git rev-parse HEAD > phase-target-evidence/source-commit.txt
+          cp instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.map phase-target-evidence/
+          sha256sum instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.elf > phase-target-evidence/elf-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phasespace-target-map-not-installable
+          path: phase-target-evidence/
+          if-no-files-found: error
