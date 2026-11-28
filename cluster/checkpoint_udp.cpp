@@ -1,5 +1,6 @@
 #include "udp_transport.hpp"
 #include "reaction_view.hpp"
+#include "checkpoint_paced.hpp"
 namespace sf=cluster::spatial;
 namespace cp=sf::checkpoint;
 static void check(bool ok,const char* why){if(!ok)fail(why);}
@@ -30,7 +31,74 @@ static void sender(Udp& udp,bool faults,bool audition=false,bool stream=false){
         std::this_thread::sleep_for(audition||stream?50ms:15ms);
     }
 }
-static void receiver(Udp& udp,bool faults){
+// Match the embedded 20 Hz presentation / 2 Hz checkpoint policy. The
+// extra incomplete checkpoint at tick 22 is deliberate fault injection.
+static void paced_sender(Udp& udp,bool faults){
+    sf::ReactionField f;
+    cp::PacedSender transfer;
+    auto due=Clock::now();
+    unsigned snapshots=0, attempts=0, omitted=0, duplicates=0, completed=0;
+    unsigned starts=0;
+    uint32_t fragment_at=0, min_spacing=UINT32_MAX, flight_at=0, max_flight=0;
+    long long start_max_ns=0,poll_max_ns=0;
+    while(f.sequence()<80||transfer.active()){
+        if(f.sequence()<80&&Clock::now()>=due){
+            due=Clock::now()+50ms; // never emit overdue snapshot bursts
+            check(f.advance(),"paced worker tick");
+            const auto seq=f.sequence();
+            if(!faults||seq<24||seq>54){
+                const auto p=sf::encode(91,f);
+                check(udp.send_bytes(p.data(),p.size()),"paced snapshot");
+                ++snapshots;
+                if(seq%10==0||(faults&&seq==22)){
+                    const auto t=Clock::now();
+                    check(transfer.start(91,f,ms()),"paced single flight");
+                    start_max_ns=std::max(start_max_ns,static_cast<long long>(
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-t).count()));
+                    ++starts;flight_at=ms();fragment_at=0;
+                }
+            }else transfer.cancel();
+        }
+        const auto now=ms();
+        const auto t=Clock::now();
+        const auto result=transfer.poll(now,[&](const cp::Packet& p){
+            if(p[12]!=0){
+                const auto spacing=uint32_t(now-fragment_at);
+                check(spacing>=cp::PacedSender::interval_ms,"paced burst");
+                min_spacing=std::min(min_spacing,spacing);
+            }
+            fragment_at=now;++attempts;
+            if(faults&&cp::get(p.data()+8)==22&&p[12]==cp::parts-1){
+                ++omitted;return true; // successful local submission, simulated network loss
+            }
+            if(!udp.send_bytes(p.data(),p.size()))return false;
+            if(faults&&p[12]==0){
+                ++duplicates;
+                if(!udp.send_bytes(p.data(),p.size()))return false;
+            }
+            return true;
+        });
+        if(result!=cp::PacedSender::Result::idle)
+            poll_max_ns=std::max(poll_max_ns,static_cast<long long>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now()-t).count()));
+        check(result!=cp::PacedSender::Result::failed&&result!=cp::PacedSender::Result::expired,
+              "paced sender missed transfer deadline");
+        if(result==cp::PacedSender::Result::complete){
+            ++completed;max_flight=std::max(max_flight,uint32_t(now-flight_at));
+        }
+        // Yield instead of a fixed sleep: Windows timer granularity must not
+        // turn the 5 ms sender policy into 15.6 ms sleeps per fragment.
+        if(transfer.active())std::this_thread::yield();
+        else std::this_thread::sleep_for(1ms);
+    }
+    check(snapshots==(faults?49u:80u)&&completed==starts&&attempts==starts*cp::parts&&
+          starts==(faults?6u:8u)&&omitted==(faults?1u:0u),"paced sender coverage");
+    std::cout<<"PASS paced_sender snapshots="<<snapshots<<" attempts="<<attempts
+             <<" completed="<<completed<<" omitted="<<omitted<<" duplicates="<<duplicates
+             <<" min_spacing_ms="<<min_spacing<<" max_flight_ms="<<max_flight
+             <<" start_max_ns="<<start_max_ns<<" poll_send_max_ns="<<poll_max_ns<<'\n';
+}
+static void receiver(Udp& udp,bool faults,bool paced=false){
     cp::Follower follower(91);
     sf::ReactionField reference;
     sf::ReactionField::Checkpoint actual{},expected{};
@@ -39,7 +107,7 @@ static void receiver(Udp& udp,bool faults){
     auto start=Clock::now();
     std::cout<<"READY"<<std::endl;
     uint32_t checked=0;
-    while(Clock::now()-start<2400ms){
+    while(Clock::now()-start<(paced?6500ms:2400ms)){
         for(unsigned i=0;i<8;++i){
             cp::Packet p{};std::size_t n=0;
             if(!udp.receive_bytes(p.data(),p.size(),n))break;
@@ -54,7 +122,7 @@ static void receiver(Udp& udp,bool faults){
         if(remote_before&&!follower.remote()&&follower.view().sequence()<80)loss=true;
         if(!follower.local().busy()&&follower.local().sequence()!=checked){
             checked=follower.local().sequence();
-            check(checked<=160,"unexpected local sequence");
+            check(checked<=(paced?220u:160u),"unexpected local sequence");
             // Reference is a witness, not part of the measured fallback path.
             while(reference.sequence()<checked)check(reference.advance(),"reference advance");
             check(reference.sequence()==checked,"local rollback");
@@ -64,7 +132,7 @@ static void receiver(Udp& udp,bool faults){
         if(follower.catchup_target())std::this_thread::yield();
         else std::this_thread::sleep_for(1ms);
     }
-    check(follower.view().sequence()==80&&follower.admitted>= (faults?5u:10u)&&matched>0&&remote_polls>0,"insufficient stream");
+    check(follower.view().sequence()==80&&follower.admitted>= (paced?(faults?4u:6u):(faults?5u:10u))&&matched>0&&remote_polls>0,"insufficient stream");
     if(faults)check(loss&&rejoin&&rejected>0&&catchup_during_loss,"no failover witness");
     std::cout<<"PASS checkpoint_udp accepted="<<accepted<<" rejected="<<rejected
         <<" admitted="<<follower.admitted<<" refused="<<follower.refused
@@ -178,18 +246,19 @@ static void policy_test(){
 }
 int main(int argc,char** argv){
     if(argc==1){policy_test();view_policy_test();return 0;}
-    if(argc!=5)fail("usage: checkpoint_udp send|receive own-port peer-port clean|faults; sender also stream|view-faults");
+    if(argc!=5)fail("usage: checkpoint_udp send|receive own-port peer-port clean|faults|paced-clean|paced-faults; sender also stream|view-faults");
     const bool audition=std::strcmp(argv[4],"view-faults")==0;
     const bool stream=std::strcmp(argv[4],"stream")==0;
-    const bool faults=std::strcmp(argv[4],"faults")==0||audition;
-    check(faults||stream||std::strcmp(argv[4],"clean")==0,"mode");
+    const bool paced=std::strcmp(argv[4],"paced-clean")==0||std::strcmp(argv[4],"paced-faults")==0;
+    const bool faults=std::strcmp(argv[4],"faults")==0||std::strcmp(argv[4],"paced-faults")==0||audition;
+    check(faults||paced||stream||std::strcmp(argv[4],"clean")==0,"mode");
     const auto own=port(argv[2]),peer=port(argv[3]);check(own!=peer,"distinct ports");
 #ifdef _WIN32
     WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup");
 #endif
     {Udp udp(own,peer);
-    if(std::strcmp(argv[1],"send")==0)sender(udp,faults,audition,stream);
-    else if(std::strcmp(argv[1],"receive")==0&&!audition&&!stream)receiver(udp,faults);
+    if(std::strcmp(argv[1],"send")==0){if(paced)paced_sender(udp,faults);else sender(udp,faults,audition,stream);}
+    else if(std::strcmp(argv[1],"receive")==0&&!audition&&!stream)receiver(udp,faults,paced);
     else fail("role");}
 #ifdef _WIN32
     WSACleanup();

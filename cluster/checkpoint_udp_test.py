@@ -11,7 +11,7 @@ def ports():
 
 subprocess.run([sys.argv[1]], check=True, timeout=10)
 
-for mode in ('clean', 'faults'):
+for mode in ('clean', 'faults', 'paced-clean', 'paced-faults'):
     a, b = ports()
     receiver = subprocess.Popen([sys.argv[1], 'receive', str(a), str(b), mode],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
