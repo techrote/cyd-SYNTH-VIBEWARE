@@ -37,6 +37,13 @@ jobs:
           ./touch-san
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all panel_test.cpp -o panel-san
           ./panel-san
+          git fetch --no-tags --depth=1 origin b7ad6410eca359603195634059cb2e9b2cabc4ec
+          git show b7ad6410eca359603195634059cb2e9b2cabc4ec:platform/dac-lifecycle/clock_sink.hpp > "$RUNNER_TEMP/clock_sink.hpp"
+          test "$(git hash-object "$RUNNER_TEMP/clock_sink.hpp")" = 0cc9887b6325cf79b414d5ef026c4c20946bfbf8
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-test
+          ./audio-owner-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I "$RUNNER_TEMP" audio_owner_test.cpp -o audio-owner-san
+          ./audio-owner-san
           diff -qr "native media" "sanitized media"
           (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
