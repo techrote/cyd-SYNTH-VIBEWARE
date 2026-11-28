@@ -22,6 +22,21 @@ inline uint32_t controls(const Image& image,unsigned mode,bool enabled){
     }
     return word;
 }
+// Local performance focus: Q8 coordinates [0,256], centre preserves the
+// original four-voice mix exactly. Edges isolate a row/column; corners a voice.
+// This modifies only gains, never pitch, packet format or audio ownership.
+inline uint32_t focus_word(uint32_t word,unsigned x,unsigned y){
+    x=x>256u?256u:x;y=y>256u?256u:y;
+    const unsigned wx[2]={x<=128u?256u:2u*(256u-x),x>=128u?256u:2u*x};
+    const unsigned wy[2]={y<=128u?256u:2u*(256u-y),y>=128u?256u:2u*y};
+    uint32_t result=word&0x03000000u;
+    for(unsigned i=0;i<4;++i){
+        const unsigned level=(word>>(6u*i))&63u;
+        const unsigned focused=(level*wx[i%2u]*wy[i/2u]+32768u)/65536u;
+        result|=uint32_t(focused)<<(6u*i);
+    }
+    return result;
+}
 class Voice {
     std::array<uint32_t,4> phase_{};
     std::array<int32_t,4> gain_{};

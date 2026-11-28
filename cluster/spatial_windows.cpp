@@ -21,7 +21,15 @@ unsigned accepted=0,rejected=0,recovered=0,paints=0,local_ticks=0,remote_ticks=0
 std::atomic<uint32_t> audio_word{0},audio_stamp{0};
 std::atomic<bool> audio_stop{false},audio_ok{false};
 bool sound_enabled=false;
-unsigned palette=0;
+unsigned palette=0,focus_x=128,focus_y=128;
+void focus_at(HWND w,LPARAM pos){
+    RECT client{};GetClientRect(w,&client);
+    const int width=int(client.right),height=std::max(1,int(client.bottom)-32);
+    const int x=int(short(LOWORD(pos))),y=int(short(HIWORD(pos)));
+    if(x<0||y<0||x>=width||y>=height)return;
+    focus_x=unsigned(uint64_t(unsigned(x))*256u/unsigned(std::max(1,width-1)));
+    focus_y=unsigned(uint64_t(unsigned(y))*256u/unsigned(std::max(1,height-1)));
+}
 void audio_loop() {
     WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannels=1;fmt.nSamplesPerSec=sf::sound::rate;
     fmt.wBitsPerSample=16;fmt.nBlockAlign=2;fmt.nAvgBytesPerSec=sf::sound::rate*2;
@@ -99,7 +107,7 @@ void update(HWND w){
     }
     if(view.frozen())++frozen_polls;
     view.present(ms());
-    audio_word.store(sf::sound::controls(view.image(),palette,sound_enabled),std::memory_order_release);
+    audio_word.store(sf::sound::focus_word(sf::sound::controls(view.image(),palette,sound_enabled),focus_x,focus_y),std::memory_order_release);
     audio_stamp.store(ms(),std::memory_order_release);
     InvalidateRect(w,nullptr,FALSE);
     if(smoke&&uint32_t(now-start)>=(checkpoint_smoke?6000u:(udp_smoke?4000u:600u)))DestroyWindow(w);
@@ -108,6 +116,8 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
     switch(msg){
     case WM_CREATE: return SetTimer(w,1,16,nullptr)?0:-1;
     case WM_TIMER: update(w);return 0;
+    case WM_RBUTTONDOWN:focus_at(w,lp);return 0;
+    case WM_MOUSEMOVE:if(wp&MK_RBUTTON)focus_at(w,lp);return 0;
     case WM_LBUTTONDOWN:held=true;sync_allowed();SetCapture(w);return 0;
     case WM_LBUTTONUP:held=false;sync_allowed();ReleaseCapture();return 0;
     case WM_CAPTURECHANGED:case WM_CANCELMODE:held=false;sync_allowed();return 0;
@@ -118,6 +128,11 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         else if(wp=='S'&&!(lp&(1L<<30))){if(sound_enabled)mute();else sound_enabled=true;}
         else if(wp=='M')mute();
         else if(wp>='1'&&wp<='4')palette=unsigned(wp-'1');
+        else if(wp==VK_HOME)focus_x=focus_y=128u;
+        else if(wp==VK_LEFT)focus_x=focus_x>=16u?focus_x-16u:0u;
+        else if(wp==VK_RIGHT)focus_x=std::min(256u,focus_x+16u);
+        else if(wp==VK_UP)focus_y=focus_y>=16u?focus_y-16u:0u;
+        else if(wp==VK_DOWN)focus_y=std::min(256u,focus_y+16u);
         return 0;
     case WM_PAINT:{
         PAINTSTRUCT ps{};HDC dc=BeginPaint(w,&ps);
@@ -136,14 +151,22 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         bmi.bmiHeader.biPlanes=1;bmi.bmiHeader.biBitCount=32;bmi.bmiHeader.biCompression=BI_RGB;
         const int height=std::max(1,int(client.bottom)-32);
         const int result=StretchDIBits(dc,0,0,int(client.right),height,0,0,320,240,pixels.data(),&bmi,DIB_RGB_COLORS,SRCCOPY);
+        if((focus_x!=128u||focus_y!=128u)&&client.right>0){
+            const int fx=int(uint64_t(unsigned(client.right-1))*focus_x/256u);
+            const int fy=int(uint64_t(unsigned(height-1))*focus_y/256u);
+            const auto previous_pen=SelectObject(dc,GetStockObject(WHITE_PEN));
+            MoveToEx(dc,fx-7,fy,nullptr);LineTo(dc,fx+8,fy);
+            MoveToEx(dc,fx,fy-7,nullptr);LineTo(dc,fx,fy+8);
+            SelectObject(dc,previous_pen);
+        }
         RECT bar{0,LONG(height),client.right,client.bottom};
         FillRect(dc,&bar,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,230,235));
         char status[200];
         const auto& f=view.follower();
-        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | %s P%u | S: sound M: mute 1-4: palette R: remote",
+        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | %s P%u | XY %u,%u | S/M 1-4 R | arrows/Home/right-drag",
             view.frozen()?"CATCH-UP":(f.remote()?"REMOTE":"LOCAL"),view.blending()&&!view.frozen()?" (blend)":"",
-            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()),audio_ok.load()?(sound_enabled?"sound on":"muted"):"audio unavailable",palette+1);
+            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()),audio_ok.load()?(sound_enabled?"sound on":"muted"):"audio unavailable",palette+1,focus_x,focus_y);
         DrawTextA(dc,status,-1,&bar,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         if(result!=GDI_ERROR&&result!=0)++paints;
         EndPaint(w,&ps);return 0;
@@ -177,6 +200,13 @@ int main(int argc,char** argv){
     HWND w=CreateWindowExA(0,wc.lpszClassName,"VIBEWARE / REACTION - distributed audiovisual synthesis",
         WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,800,640,nullptr,nullptr,instance,nullptr);
     if(!w)fail("CreateWindow");
+    if(smoke){
+        SendMessageA(w,WM_KEYDOWN,VK_RIGHT,0);
+        SendMessageA(w,WM_KEYDOWN,VK_UP,0);
+        if(focus_x!=144u||focus_y!=112u)fail("focus key smoke");
+        SendMessageA(w,WM_KEYDOWN,VK_HOME,0);
+        if(focus_x!=128u||focus_y!=128u)fail("focus reset smoke");
+    }
     start=ms();sync_allowed();view.present(start);
     std::thread audio;
     if(!smoke)audio=std::thread(audio_loop);

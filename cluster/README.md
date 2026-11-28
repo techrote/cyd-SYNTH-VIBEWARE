@@ -353,3 +353,19 @@ checks byte-identical Linux regeneration, and compares all seven files against
 the extracted Windows package on the same source commit/tree and PR head.
 No tolerance or warning suppression. This is an offline deterministic audio
 witness, not device playback, listening acceptance or physical network evidence.
+
+## M23: local spatial focus performance gesture
+
+Right-click/drag within the reaction image (or use arrow keys) to attenuate
+voices opposite the gesture; Home restores the original four-voice mix exactly.
+The crosshair marks the local focus, not a remote simulation intervention.
+Left hold and R retain the prior local/remote override semantics. Corners isolate
+a quadrant, edges isolate a row or column; the centre preserves all original
+gains. No additional packets, radio dependency, pitch changes or audio-thread
+work; the existing packed word, gain slew, mute and freshness lease are retained.
+The seventh gallery scene, 07-local-focus-orbit, applies a deterministic eight-second
+corner traversal to the same standalone field and palette as scene 01. The
+first six scenes and fault gates remain unchanged; gallery packaging now checks
+seven WAVs plus the metrics CSV. Windows smoke exercises focus keyboard movement
+and reset. Embedded profiles remain visual-only; this is not physical touch,
+radio or audio-device qualification.
