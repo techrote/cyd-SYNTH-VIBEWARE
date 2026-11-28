@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install platformio==6.1.18
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
       - name: Verify clean source pins
         shell: bash
         run: |
@@ -41,10 +41,14 @@ jobs:
           set -euo pipefail
           mkdir qa-target-receipts
           pio system info > qa-target-receipts/system.txt
+          python -c 'import intelhex; from importlib.metadata import version; assert version("intelhex") == "2.3.0"; print(version("intelhex"))' > qa-target-receipts/intelhex-version.txt
           build() {
             local repo="$1" project="$2" env="$3"
             local dir="$repo/$project" out="qa-target-receipts/$env"
             mkdir "$out"
+            export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/qa-pio-$env"
+            test ! -e "$PLATFORMIO_CORE_DIR"
+            printf '%s\n' "$PLATFORMIO_CORE_DIR" > "$out/core-dir.txt"
             git -C "$repo" rev-parse HEAD > "$out/source-commit.txt"
             git -C "$repo" rev-parse 'HEAD^{tree}' > "$out/source-tree.txt"
             cp "$dir/platformio.ini" "$out/platformio.ini"
@@ -59,9 +63,22 @@ jobs:
             (cd "$out" && sha256sum *.txt platformio.ini firmware.map > manifest.sha256 && sha256sum -c manifest.sha256)
             echo "PASS target compile/link $env (not physical execution)"
           }
-          build integrated instruments/phasespace/firmware cyd-phasespace
-          build integrated instruments/fm1-ports/xenoresonator cyd-port-xeno
-          build grid instruments/chronogrid/firmware cyd-chronogrid
+          failed=0
+          run_build() {
+            local env="$3" status
+            # A fresh shell preserves errexit inside build even when the caller handles failure.
+            if bash -euo pipefail -c "$(declare -f build); build \"\$@\"" qa-build "$@"; then
+              status=PASS
+            else
+              status=FAIL
+              failed=1
+            fi
+            printf '%s\t%s\n' "$env" "$status" | tee -a qa-target-receipts/profile-status.tsv
+          }
+          run_build integrated instruments/phasespace/firmware cyd-phasespace
+          run_build integrated instruments/fm1-ports/xenoresonator cyd-port-xeno
+          run_build grid instruments/chronogrid/firmware cyd-chronogrid
+          exit "$failed"
       - name: Preserve only non-installable evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,17 @@
+# QA batch 005 — independent target failure recovery (28 November 2026)
+
+Draft/HOLD; main bf08fb5a38a7fa692026af3bfb08943fb72506ef. Prior batch004 and Collection003-qualified unchanged. No promotion or physical/rights approval.
+
+## Failed independent target evidence
+
+Actual [job 140883371230](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46113931111/job/140883371230) logs: PHASESPACE compile/link SUCCESS (86.12 s); Xenoresonator bootloader FAIL (35.27 s), esptool 4.11.0 `ModuleNotFoundError: No module named 'intelhex'`; CHRONOGRID M1 NOT RUN because original sequential script exited. Partial map/log receipt [15250873460](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46113931111/artifacts/15250873460) nonexpired, metadata SHA256 73f05e65c8c284c863ac84728b9711bff912cb653947ee3b3df13203299e73b0 (archive bytes not recovered this run). Target execution/physical NOT RUN. Integration #17 handoff corroborates clean author auto-install of intelhex 2.3.0; not proof of independent fix.
+
+## QA repair
+
+Same frozen source/tree checks and profiles as batch004. Explicit PlatformIO 6.1.18 and intelhex 2.3.0 install/import/version preflight; separate fresh PLATFORMIO_CORE_DIR per profile (runtime RUNNER_TEMP), each build executed in a fresh bash -euo pipefail process, so one failure no longer prevents remaining profiles. Aggregate exit nonzero on any profile failure; status TSV and partial logs always uploaded, no ELF/bin uploaded. Test of workflow bash body: bash -n PASS; local mock pio/git/python harness in paths with spaces, success and individually injected failure in each of three profiles (4/4), all three attempted, correct aggregate exit status and per-profile manifests, distinct core dirs, no binaries in receipt. This is a control-flow fixture, NOT target compilation. Local pio missing and git DNS unavailable. Actual fixed independent job pending; authored QA repair provisional until hosted reproduction.
+
+## Independently executed CHRONOGRID M3
+
+Exact author ref 9f7b1ff5bead8d718befd1284b6bd4ae1a4b67ed. Recovered sources from M3 gallery; verified Git blob identities against connector: core c3a2557abdff7e7ef198d7735670d022e66b0f74, replay 8e26c7f288aeb3eac31808df9edc1fea1603741a. Local `g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay; ./replay gcc` and `clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer replay.cpp -o replay-san; ./replay-san clang` in extracted space-containing path: each 2,696,623 checks PASS; 18/18 regenerated media byte-identical across compilers; three archived ratio demo files byte-identical. 150834/192000 PCM changed, events 81/53/60/73 vs 61/61/46/76 fixed. Author [46117794221](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46117794221) 4/4 jobs success; Windows [15252189009](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46117794221/artifacts/15252189009) nonexpired metadata digest 03002c7453e45f32d70bfd250ee9c28d8f230b6afd37e86b7c87cd717728e283. Independent Windows and target M3 NOT RUN; no collection pin change. Chronomorph M2 author Windows failure / Linux success (46116351933), PORT owns repair. HYBRID M12 author native 3/3 PASS, independent pending. Preserve M10 and P2 pins and integration #17 ed61c3d0bde350703c16c791ef1d07056fc45552.
+
+Next: inspect actual fixed QA target job and receipts; independently exercise M3 and HYBRID M12 Windows archives before refreshed collection. No merges or physical claims.
