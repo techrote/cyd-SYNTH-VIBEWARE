@@ -1,7 +1,11 @@
-// Visual-only actual-core desktop audition. Optional isolated localhost stream.
+// Actual-core desktop audiovisual audition. Optional isolated localhost stream.
 #include "udp_transport.hpp"
 #include "reaction_view.hpp"
+#include "reaction_sound.hpp"
 #include <windows.h>
+#include <mmsystem.h>
+#include <atomic>
+#include <thread>
 #include <memory>
 #include <cstdio>
 namespace sf=cluster::spatial;
@@ -14,6 +18,48 @@ bool enabled=false,held=false,smoke=false,udp_smoke=false,checkpoint_smoke=false
 bool manual_started=false,manual_finished=false,manual_seen=false,manual_rejoin=false,catchup_witness=false;
 uint32_t start=0,manual_at=0;
 unsigned accepted=0,rejected=0,recovered=0,paints=0,local_ticks=0,remote_ticks=0,frozen_polls=0,loss_caught=0;
+std::atomic<uint32_t> audio_word{0},audio_stamp{0};
+std::atomic<bool> audio_stop{false},audio_ok{false};
+bool sound_enabled=false;
+unsigned palette=0;
+void audio_loop() {
+    WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannels=1;fmt.nSamplesPerSec=sf::sound::rate;
+    fmt.wBitsPerSample=16;fmt.nBlockAlign=2;fmt.nAvgBytesPerSec=sf::sound::rate*2;
+    HWAVEOUT device=nullptr;
+    if(waveOutOpen(&device,WAVE_MAPPER,&fmt,0,0,CALLBACK_NULL)!=MMSYSERR_NOERROR)return;
+    constexpr unsigned count=4, samples=256;
+    std::array<std::array<int16_t,samples>,count> pcm{};
+    std::array<WAVEHDR,count> headers{};
+    unsigned prepared=0;
+    for(;prepared<count;++prepared) {
+        auto& h=headers[prepared];h.lpData=reinterpret_cast<LPSTR>(pcm[prepared].data());
+        h.dwBufferLength=DWORD(samples*sizeof(int16_t));
+        if(waveOutPrepareHeader(device,&h,sizeof(h))!=MMSYSERR_NOERROR)break;
+    }
+    sf::sound::Voice voice;
+    if(prepared==count) {
+        audio_ok.store(true);
+        bool healthy=true;
+        while(!audio_stop.load()&&healthy) {
+            for(unsigned i=0;i<count;++i) {
+                auto& h=headers[i];
+                if(!(h.dwFlags&WHDR_INQUEUE)) {
+                    const auto stamp=audio_stamp.load(std::memory_order_acquire);
+                    const auto word=uint32_t(ms()-stamp)>120?0:audio_word.load(std::memory_order_acquire);
+                    voice.render(word,pcm[i].data(),samples);
+                    if(waveOutWrite(device,&h,sizeof(h))!=MMSYSERR_NOERROR) {healthy=false;break;}
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+    audio_ok.store(false);
+    waveOutReset(device);
+    for(unsigned i=0;i<prepared;++i)waveOutUnprepareHeader(device,&headers[i],sizeof(WAVEHDR));
+    waveOutClose(device);
+}
+
+void mute(){sound_enabled=false;audio_word.store(0,std::memory_order_release);}
 void sync_allowed(){view.allow_remote(enabled&&!held);}
 void update(HWND w){
     const auto now=ms();
@@ -53,6 +99,8 @@ void update(HWND w){
     }
     if(view.frozen())++frozen_polls;
     view.present(ms());
+    audio_word.store(sf::sound::controls(view.image(),palette,sound_enabled),std::memory_order_release);
+    audio_stamp.store(ms(),std::memory_order_release);
     InvalidateRect(w,nullptr,FALSE);
     if(smoke&&uint32_t(now-start)>=(checkpoint_smoke?6000u:(udp_smoke?4000u:600u)))DestroyWindow(w);
 }
@@ -62,10 +110,14 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
     case WM_TIMER: update(w);return 0;
     case WM_LBUTTONDOWN:held=true;sync_allowed();SetCapture(w);return 0;
     case WM_LBUTTONUP:held=false;sync_allowed();ReleaseCapture();return 0;
-    case WM_CAPTURECHANGED:case WM_CANCELMODE:case WM_KILLFOCUS:held=false;sync_allowed();return 0;
+    case WM_CAPTURECHANGED:case WM_CANCELMODE:held=false;sync_allowed();return 0;
+    case WM_KILLFOCUS:mute();held=false;sync_allowed();return 0;
     case WM_KEYDOWN:
         if(wp==VK_ESCAPE)DestroyWindow(w);
         else if(wp=='R'&&udp&&!(lp&(1L<<30))){enabled=!enabled;sync_allowed();}
+        else if(wp=='S'&&!(lp&(1L<<30))){if(sound_enabled)mute();else sound_enabled=true;}
+        else if(wp=='M')mute();
+        else if(wp>='1'&&wp<='4')palette=unsigned(wp-'1');
         return 0;
     case WM_PAINT:{
         PAINTSTRUCT ps{};HDC dc=BeginPaint(w,&ps);
@@ -89,14 +141,14 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,230,235));
         char status[200];
         const auto& f=view.follower();
-        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | Hold: local  R: remote  Esc: quit",
+        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | %s P%u | S: sound M: mute 1-4: palette R: remote",
             view.frozen()?"CATCH-UP":(f.remote()?"REMOTE":"LOCAL"),view.blending()&&!view.frozen()?" (blend)":"",
-            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()));
+            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()),audio_ok.load()?(sound_enabled?"sound on":"muted"):"audio unavailable",palette+1);
         DrawTextA(dc,status,-1,&bar,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         if(result!=GDI_ERROR&&result!=0)++paints;
         EndPaint(w,&ps);return 0;
     }
-    case WM_DESTROY:KillTimer(w,1);PostQuitMessage(0);return 0;
+    case WM_DESTROY:mute();KillTimer(w,1);PostQuitMessage(0);return 0;
     default:return DefWindowProcA(w,msg,wp,lp);
     }
 }
@@ -122,13 +174,16 @@ int main(int argc,char** argv){
     WNDCLASSA wc{};wc.lpfnWndProc=wnd;wc.hInstance=instance;wc.lpszClassName="CYDReactionView";
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     if(!RegisterClassA(&wc))fail("RegisterClass");
-    HWND w=CreateWindowExA(0,wc.lpszClassName,"VIBEWARE / REACTION - distributed visual synthesis",
+    HWND w=CreateWindowExA(0,wc.lpszClassName,"VIBEWARE / REACTION - distributed audiovisual synthesis",
         WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,800,640,nullptr,nullptr,instance,nullptr);
     if(!w)fail("CreateWindow");
     start=ms();sync_allowed();view.present(start);
+    std::thread audio;
+    if(!smoke)audio=std::thread(audio_loop);
     ShowWindow(w,SW_SHOW);UpdateWindow(w);
     if(udp_smoke)std::cout<<"READY"<<std::endl;
     MSG msg{};int rc=0;while((rc=GetMessageA(&msg,nullptr,0,0))>0){TranslateMessage(&msg);DispatchMessageA(&msg);}
+    audio_stop.store(true);if(audio.joinable())audio.join();
     if(network){udp.reset();WSACleanup();}
     if(smoke){
         std::cout<<"GDI paints="<<paints<<" local_ticks="<<local_ticks<<" remote_ticks="<<remote_ticks

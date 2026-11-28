@@ -1,5 +1,6 @@
 #include "checkpoint.hpp"
 #include "checkpoint_paced.hpp"
+#include "reaction_sound_test.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -8,6 +9,7 @@ namespace cp=sf::checkpoint;
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){std::cerr<<why<<'\n';std::exit(1);}}
 int main(){
+    sf::sound::regression(check);
     sf::ReactionField worker,local;
     sf::ReactionField::Checkpoint state{},actual{};
     cp::Receiver rx(91);
@@ -31,6 +33,7 @@ int main(){
         check(rx.restore(local,tick)&&!rx.restore(local,tick),"single restore");
         check(!local.busy()&&local.sequence()==worker.sequence()&&local.pixels()==worker.pixels(),"phase restore");
         check(local.export_checkpoint(actual)&&actual==state,"all concentrations exact");
+        check(sf::sound::controls(local.pixels(),2,true)==sf::sound::controls(worker.pixels(),2,true),"exact restored sonic control");
         sf::ReactionField reference=worker;
         for(unsigned i=0;i<19;++i){
             check(local.advance()&&reference.advance(),"continuation");
