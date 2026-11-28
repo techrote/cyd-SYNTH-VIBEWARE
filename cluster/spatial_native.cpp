@@ -54,7 +54,8 @@ static void sender(Udp& udp,bool faults){
 }
 static void viewer(Udp& udp,bool faults,const char* path){
     sf::Field local,reference;sf::Receiver rx(91);
-    unsigned accepted=0,rejected=0,fallback=0,recovered=0;
+    unsigned accepted=0,rejected=0,fallback=0,recovered=0,local_paints=0,remote_paints=0;
+    std::array<uint16_t,320> row{};uint32_t visual_digest=0;
     bool saw_remote=false,saw_loss=false;
     auto start=Clock::now(),next=start;
     std::cout<<"READY"<<std::endl;
@@ -72,8 +73,11 @@ static void viewer(Udp& udp,bool faults,const char* path){
         const auto now=Clock::now();
         if(now>=next){
             check(local.advance(),"local advance");next=now+15ms;
-            if(rx.fresh(ms()))saw_remote=true;
-            else if(saw_remote){++fallback;saw_loss=true;}
+            const bool remote=rx.fresh(ms());
+            if(remote){saw_remote=true;++remote_paints;}
+            else {++local_paints;if(saw_remote){++fallback;saw_loss=true;}}
+            sf::row(remote?rx.pixels():local.pixels(),(remote_paints+local_paints)%240,row.data());
+            for(auto v:row)visual_digest=visual_digest*33u+v;
         }
         std::this_thread::sleep_for(1ms);
     }
@@ -81,7 +85,7 @@ static void viewer(Udp& udp,bool faults,const char* path){
     if(faults)check(recovered>0&&fallback>0&&rejected>0,"no blackout/rejoin/duplicate witness");
     ppm(path,rx.pixels()); // last accepted remote snapshot, not live after timeout
     std::cout<<"PASS accepted="<<accepted<<" rejected="<<rejected<<" fallback_ticks="<<fallback
-        <<" recovered="<<recovered<<" last_seq="<<rx.sequence()<<" payload_bytes="<<accepted*sf::bytes<<'\n';
+        <<" local_paints="<<local_paints<<" remote_paints="<<remote_paints<<" visual_digest="<<visual_digest<<" recovered="<<recovered<<" last_seq="<<rx.sequence()<<" payload_bytes="<<accepted*sf::bytes<<'\n';
 }
 int main(int argc,char** argv){
     if(argc==1){replay();return 0;}

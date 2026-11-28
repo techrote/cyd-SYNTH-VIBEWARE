@@ -3,7 +3,7 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
+import threading
 
 def ports():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as a, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as b:
@@ -19,7 +19,12 @@ with tempfile.TemporaryDirectory() as tmp:
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             # The viewer has a bounded 2.3-second lifetime; no indefinite handshake.
-            time.sleep(.15)
+            ready = []
+            thread = threading.Thread(target=lambda: ready.append(viewer.stdout.readline()), daemon=True)
+            thread.start()
+            thread.join(timeout=5)
+            if thread.is_alive() or ready != ['READY\n']:
+                raise RuntimeError('viewer did not become ready')
             subprocess.run([sys.argv[1], 'send', str(b), str(a), mode, path], check=True, timeout=10)
             out, _ = viewer.communicate(timeout=10)
             print(mode, out, flush=True)
