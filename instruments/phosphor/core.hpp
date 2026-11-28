@@ -11,16 +11,32 @@ constexpr std::array<Scene,6> scenes{{
  {12,2,245,3,255,100,28,110},{-18,-3,249,2,64,210,255,147},
  {0,5,251,1,220,70,255,196},{28,0,239,5,84,255,130,98},
  {-32,3,247,4,255,220,64,131},{6,-5,253,2,140,150,255,165}}};
+struct AudioControl {
+ std::array<uint32_t,4> increment{};
+ std::array<int,4> target{};
+ uint32_t reset=0;
+ bool muted=true;
+};
+inline int16_t render_sample(std::array<uint32_t,4>& phase,std::array<int,4>& amplitude,
+                             const std::array<uint32_t,4>& increment,const std::array<int,4>& target,bool muted){
+ if(muted)return 0;
+ int sum=0;
+ for(unsigned i=0;i<4;++i){
+  int d=target[i]-amplitude[i];amplitude[i]+=d==0?0:(d>0?std::max(1,d/256):std::min(-1,d/256));
+  phase[i]+=increment[i];int v=int(phase[i]>>16);int triangle=v<32768?v-16384:49151-v;
+  sum+=triangle*amplitude[i]/16384;
+ }
+ return int16_t(sum);
+}
 // Single-owner engine: simulation and synthesis share a sample clock. A target
 // adapter must isolate simulation/scan from the audio deadline before adoption.
 class Engine {
  std::array<uint8_t,W*H> a_{},b_{};
  std::array<uint32_t,4> phase_{},increment_{};
  std::array<int,4> amplitude_{},target_{};
- uint32_t tick_=0,age_=0; int until_=step,scene_=0,x_=W/2,y_=H/2,dx_=0,dy_=0;
+ uint32_t tick_=0,age_=0,reset_=0; int until_=step,scene_=0,x_=W/2,y_=H/2,dx_=0,dy_=0;
  bool held_=false,frozen_=false,muted_=true;
  static int clip(int x,int n){return std::max(0,std::min(n-1,x));}
- static int triangle(uint32_t p){int v=int(p>>16);return v<32768?v-16384:49151-v;}
  int get(int x,int y)const{return a_[clip(y,H)*W+clip(x,W)];}
  void inject(int x,int y,int radius){
   for(int j=-radius;j<=radius;++j)for(int i=-radius;i<=radius;++i){
@@ -48,14 +64,14 @@ class Engine {
   ++tick_;
  }
 public:
- void panic(){muted_=true;held_=false;amplitude_.fill(0);target_.fill(0);}
+ void panic(){++reset_;muted_=true;held_=false;amplitude_.fill(0);target_.fill(0);}
  void select(int s){
   if(s<0||s>=6)return;
   constexpr unsigned ratios[6][4]={{2,3,4,5},{2,4,6,9},{2,3,5,7},{2,2,3,6},{2,5,7,8},{2,3,4,8}};
   for(int i=0;i<4;++i)increment_[i]=uint32_t((uint64_t(scenes[s].hz)*ratios[s][i]*(uint64_t(1)<<31))/rate);
   scene_=s;muted_=false;frozen_=false;held_=false;
  }
- void clear(){a_.fill(0);b_.fill(0);amplitude_.fill(0);target_.fill(0);}
+ void clear(){++reset_;a_.fill(0);b_.fill(0);amplitude_.fill(0);target_.fill(0);}
  void up(){held_=false;}
  void touch(int x,int y,bool down){
   if(x<0||x>=320||y<0||y>=240){panic();return;}
@@ -68,15 +84,11 @@ public:
  }
  int16_t sample(){
   if(--until_==0){evolve();until_=step;}
-  if(muted_)return 0;
-  int sum=0;
-  for(unsigned i=0;i<4;++i){
-   int d=target_[i]-amplitude_[i];amplitude_[i]+=d==0?0:(d>0?std::max(1,d/256):std::min(-1,d/256));
-   phase_[i]+=increment_[i];
-   sum+=triangle(phase_[i])*amplitude_[i]/16384;
-  }
-  return int16_t(sum);
+  return render_sample(phase_,amplitude_,increment_,target_,muted_);
  }
+ // Separate-owner adapter uses only these methods on the visual thread.
+ void visual_step(){evolve();}
+ AudioControl audio_control()const{return {increment_,target_,reset_,muted_};}
  bool held()const{return held_;} bool muted()const{return muted_;} bool frozen()const{return frozen_;}
  uint32_t ticks()const{return tick_;}
  const auto& field()const{return a_;}
