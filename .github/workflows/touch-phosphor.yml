@@ -1,0 +1,105 @@
+name: TOUCH PHOSPHOR desktop
+on:
+  pull_request:
+    paths:
+      - 'instruments/phosphor/**'
+      - '.github/workflows/touch-phosphor.yml'
+permissions:
+  contents: read
+concurrency:
+  group: touch-phosphor-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: github.event.pull_request.head.ref == 'touch/phosphor-001'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2
+      - name: Build and exercise exact source
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          stage="$PWD/owner package"
+          cd instruments/phosphor
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "$stage/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread split_test.cpp -o "$stage/split-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror desktop_test.cpp -o "$stage/desktop-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I/ucrt64/include/SDL2 desktop.cpp -o "$stage/PHOSPHOR.exe" -lSDL2 -static-libgcc -static-libstdc++
+          "$stage/desktop-test.exe"
+          cp core.hpp split.hpp replay.cpp split_test.cpp desktop_session.hpp desktop_test.cpp desktop.cpp README.md M2.md M3.md "$stage/"
+          g++ --version > "$stage/TOOLCHAIN.txt"
+          pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2 >> "$stage/TOOLCHAIN.txt"
+          cd "$stage"
+          ./replay.exe media
+          ./split-test.exe
+          mkdir -p notices
+          queue=(PHOSPHOR.exe)
+          : > IMPORTS.txt
+          : > notices/PACKAGES.txt
+          for ((i=0;i<${#queue[@]};i++)); do
+            obj="${queue[i]}"
+            printf '%s\n' "$obj" >> IMPORTS.txt
+            objdump -p "$obj" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' > imports.tmp
+            cat imports.tmp >> IMPORTS.txt
+            while IFS= read -r dll; do
+              path=$(find /ucrt64/bin -maxdepth 1 -iname "$dll" -print -quit)
+              if [[ -n "$path" && ! -f "$dll" ]]; then
+                cp "$path" "$dll"
+                queue+=("$dll")
+                pkg=$(pacman -Qoq "$path")
+                pacman -Q "$pkg" >> notices/PACKAGES.txt
+                mkdir -p "notices/$pkg"
+                count=0
+                while IFS= read -r license; do
+                  if [[ -f "$license" ]]; then cp "$license" "notices/$pkg/"; count=$((count+1)); fi
+                done < <(pacman -Qlq "$pkg" | grep '/share/licenses/' || true)
+                test "$count" -gt 0
+              fi
+            done < imports.tmp
+          done
+          rm imports.tmp
+          test -f SDL2.dll
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Archive and extract with spaces
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath "PHOSPHOR Windows.zip"
+          Expand-Archive -Path "PHOSPHOR Windows.zip" -DestinationPath "extracted owner package"
+      - name: Verify extracted media and source manifest
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd "extracted owner package"
+          sha256sum -c SHA256SUMS.txt
+          ./desktop-test.exe
+          ./split-test.exe
+          ./replay.exe "reproduced media"
+          diff -qr media "reproduced media"
+      - name: Extracted graphical smoke without compiler runtime PATH
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Set-Location "extracted owner package"
+          & ".\PHOSPHOR.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { throw "Graphical smoke failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phosphor-windows-owner-candidate
+          path: PHOSPHOR Windows.zip
+          if-no-files-found: error
