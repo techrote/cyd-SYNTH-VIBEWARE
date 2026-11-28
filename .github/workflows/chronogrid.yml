@@ -4,6 +4,7 @@ on:
     paths:
       - 'instruments/chronogrid/**'
       - '.github/workflows/chronogrid.yml'
+      - 'integration/package_gate.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,6 +32,10 @@ jobs:
           name: chronogrid-native-media
           path: grid-media/
           if-no-files-found: error
+      - if: runner.os == 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -67,13 +72,10 @@ jobs:
           } | Set-Content -Encoding ascii grid-package/manifest.sha256
           Compress-Archive -Path 'grid-package/*' -DestinationPath chronogrid-windows.zip
           Expand-Archive chronogrid-windows.zip 'extracted grid'
-          $lines = @(Get-Content 'extracted grid/manifest.sha256')
-          if ($lines.Count -ne $payloads.Count) {throw 'Manifest count mismatch'}
-          $lines | ForEach-Object {
-            if ($_ -notmatch '^([A-Fa-f0-9]{64}) (.+)$') {throw 'Malformed manifest'}
-            $expected = $Matches[1]; $relative = $Matches[2]
-            if ((Get-FileHash (Join-Path 'extracted grid' $relative) -Algorithm SHA256).Hash -ne $expected) {throw "Checksum failed: $relative"}
-          }
+          python integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) {throw 'Package gate selftest failed'}
+          python integration/package_gate.py verify 'extracted grid' --manifest manifest.sha256 --style single
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted package gate failed'}
           & './extracted grid/chronogrid_replay.exe'
           if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
           & './extracted grid/chronogrid.exe' --smoke

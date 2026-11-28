@@ -4,6 +4,7 @@ on:
     paths:
       - 'instruments/fm1-ports/xenoresonator/**'
       - '.github/workflows/port-xenoresonator.yml'
+      - 'integration/package_gate.py'
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -34,6 +35,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -59,6 +63,10 @@ jobs:
         run: |
           Compress-Archive -Path "owner package/*" -DestinationPath Xenoresonator.zip
           Expand-Archive Xenoresonator.zip -DestinationPath "extracted audition"
+          python ../../../integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) {throw 'Package gate selftest failed'}
+          python ../../../integration/package_gate.py verify "extracted audition"
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted package gate failed'}
           & "./extracted audition/replay.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "./extracted audition/Xenoresonator.exe" --smoke

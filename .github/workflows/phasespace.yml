@@ -4,6 +4,7 @@ on:
     paths:
       - 'instruments/phasespace/**'
       - '.github/workflows/phasespace.yml'
+      - 'integration/package_gate.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,6 +32,10 @@ jobs:
           name: phasespace-native-media
           path: phase-media/
           if-no-files-found: error
+      - if: runner.os == 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -60,8 +65,14 @@ jobs:
           }
           & ./phase-package/phasespace_replay.exe phase-package/media
           if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
+          python integration/package_gate.py selftest
+          if ($LASTEXITCODE -ne 0) {throw 'Package gate selftest failed'}
+          python integration/package_gate.py create phase-package
+          if ($LASTEXITCODE -ne 0) {throw 'Package manifest creation failed'}
           Compress-Archive -Path 'phase-package/*' -DestinationPath phasespace-windows.zip
           Expand-Archive phasespace-windows.zip 'extracted phase'
+          python integration/package_gate.py verify 'extracted phase'
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted package gate failed'}
           & './extracted phase/phasespace_replay.exe'
           if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
           & './extracted phase/phasespace.exe' --smoke
