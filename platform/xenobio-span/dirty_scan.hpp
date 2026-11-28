@@ -46,6 +46,12 @@ public:
         for(int s=0;s<60;++s) if(mask_&(uint64_t(1)<<s)) return 4*s;
         return -1;
     }
+    // Borrow the immutable pending snapshot for each row of the next strip.
+    template<class Row> bool for_each_next_row(Row&& write) const {
+        const int y=next_row(); if(y<0) return false;
+        for(int dy=0;dy<4;++dy) write(pending_,y+dy,dy);
+        return true;
+    }
     bool render_next(uint16_t* out) const {
         const int y=next_row();if(y<0) return false;
         for(int dy=0;dy<4;++dy) xenobio_span_row(pending_,y+dy,out+320*dy);
