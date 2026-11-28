@@ -122,3 +122,13 @@ endif()
 add_test(NAME cluster_bench COMMAND cluster_bench_test)
 
 add_test(NAME cluster_bench_capture COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/bench_capture_test.py)
+
+add_executable(cluster_lan_test lan_test.cpp)
+target_compile_features(cluster_lan_test PRIVATE cxx_std_17)
+set_target_properties(cluster_lan_test PROPERTIES CXX_EXTENSIONS OFF)
+if(MSVC)
+  target_compile_options(cluster_lan_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(cluster_lan_test PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()
+add_test(NAME cluster_lan COMMAND cluster_lan_test)
