@@ -1,5 +1,5 @@
 #include "udp_transport.hpp"
-#include "checkpoint_follow.hpp"
+#include "reaction_view.hpp"
 namespace sf=cluster::spatial;
 namespace cp=sf::checkpoint;
 static void check(bool ok,const char* why){if(!ok)fail(why);}
@@ -8,10 +8,10 @@ static unsigned port(const char* s){
     if(!*s||*end||p<1024||p>65535)fail("port");
     return unsigned(p);
 }
-static void sender(Udp& udp,bool faults){
+static void sender(Udp& udp,bool faults,bool audition=false,bool stream=false){
     sf::ReactionField f;
     sf::ReactionField::Checkpoint state{};
-    for(uint32_t i=1;i<=80;++i){
+    for(uint32_t i=1;i<=(stream?2400u:80u);++i){
         check(f.advance(),"worker tick");
         if(!faults||i<20||i>50){
             const auto snapshot=sf::encode(91,f);
@@ -27,7 +27,7 @@ static void sender(Udp& udp,bool faults){
                 }
             }
         }
-        std::this_thread::sleep_for(15ms);
+        std::this_thread::sleep_for(audition||stream?50ms:15ms);
     }
 }
 static void receiver(Udp& udp,bool faults){
@@ -70,6 +70,57 @@ static void receiver(Udp& udp,bool faults){
         <<" admitted="<<follower.admitted<<" refused="<<follower.refused
         <<" matched="<<matched<<" caught_up="<<follower.caught_up<<" cold_losses="<<follower.cold_losses
         <<" loss="<<loss<<" rejoin="<<rejoin<<" catchup_during_loss="<<catchup_during_loss<<" last_seq="<<follower.view().sequence()<<'\n';
+}
+static void view_policy_test(){
+    sf::ReactionView v(91);
+    sf::ReactionField worker;
+    sf::ReactionField::Checkpoint state{},actual{};
+    const uint32_t start=0xffffff00u;
+    v.present(start);
+    v.allow_remote(true);
+    auto snap=[&](uint32_t now){
+        const auto p=sf::encode(91,worker);
+        return v.receive(p.data(),p.size(),now);
+    };
+    auto frag=[&](std::size_t j,uint32_t now){
+        const auto p=cp::encode(91,worker.sequence(),state,j);
+        return v.receive(p.data(),p.size(),now);
+    };
+    for(unsigned i=1;i<=15;++i)check(worker.advance(),"view worker advance");
+    check(snap(start),"view snapshot");
+    check(worker.export_checkpoint(state),"view export");
+    for(std::size_t j=0;j<cp::parts;++j)check(frag(j,start),"view checkpoint");
+    v.step(start);v.present(start);
+    check(v.follower().admitted==1&&v.follower().remote(),"view remote admission");
+    for(unsigned i=16;i<=19;++i){
+        check(worker.advance(),"view worker advance");
+        check(snap(start+50u*(i-15u)),"view next snapshot");
+        v.step(start+50u*(i-15u));v.present(start+50u*(i-15u));
+    }
+    const auto frozen=v.image();
+    const auto loss=start+200u+sf::lease_ms;
+    v.step(loss);v.present(loss);
+    check(v.frozen()&&v.image()==frozen,"view failed to freeze on loss");
+    unsigned work=1;
+    while(v.frozen()&&work<101){
+        check(v.step(loss),"view catchup progress");++work;
+        v.present(loss);
+        if(v.frozen())check(v.image()==frozen,"view partial state leaked");
+    }
+    check(!v.frozen()&&v.follower().caught_up==1&&v.follower().local().sequence()==19,"view recovery");
+    check(v.follower().local().export_checkpoint(actual)&&worker.export_checkpoint(state)&&actual==state,"view exact catchup");
+    check(worker.advance()&&worker.export_checkpoint(state),"view manual setup");
+    check(snap(loss+1)&&frag(0,loss+1),"view partial checkpoint");
+    v.step(loss+1);v.present(loss+1);
+    v.allow_remote(false);v.step(loss+2);v.present(loss+2);
+    check(!v.follower().remote()&&!v.frozen()&&v.image()==v.follower().local().pixels(),"manual not immediate");
+    check(!snap(loss+2)&&!frag(1,loss+2),"manual admitted traffic");
+    v.allow_remote(true);v.step(loss+3);v.present(loss+3);
+    check(!v.follower().remote()&&!snap(loss+3)&&!frag(1,loss+3),"manual stale rejoin");
+    check(worker.advance()&&snap(loss+4),"view fresh rejoin");
+    v.step(loss+4);v.present(loss+4);
+    check(v.follower().remote()&&v.follower().admitted==1,"manual recovery");
+    std::cout<<"PASS reaction view policy catchup_slices="<<work<<'\n';
 }
 static void policy_test(){
     sf::ReactionField worker;
@@ -126,17 +177,19 @@ static void policy_test(){
     std::cout<<"PASS checkpoint policy\n";
 }
 int main(int argc,char** argv){
-    if(argc==1){policy_test();return 0;}
-    if(argc!=5)fail("usage: checkpoint_udp send|receive own-port peer-port clean|faults");
-    const bool faults=std::strcmp(argv[4],"faults")==0;
-    check(faults||std::strcmp(argv[4],"clean")==0,"mode");
+    if(argc==1){policy_test();view_policy_test();return 0;}
+    if(argc!=5)fail("usage: checkpoint_udp send|receive own-port peer-port clean|faults; sender also stream|view-faults");
+    const bool audition=std::strcmp(argv[4],"view-faults")==0;
+    const bool stream=std::strcmp(argv[4],"stream")==0;
+    const bool faults=std::strcmp(argv[4],"faults")==0||audition;
+    check(faults||stream||std::strcmp(argv[4],"clean")==0,"mode");
     const auto own=port(argv[2]),peer=port(argv[3]);check(own!=peer,"distinct ports");
 #ifdef _WIN32
     WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)fail("WSAStartup");
 #endif
     {Udp udp(own,peer);
-    if(std::strcmp(argv[1],"send")==0)sender(udp,faults);
-    else if(std::strcmp(argv[1],"receive")==0)receiver(udp,faults);
+    if(std::strcmp(argv[1],"send")==0)sender(udp,faults,audition,stream);
+    else if(std::strcmp(argv[1],"receive")==0&&!audition&&!stream)receiver(udp,faults);
     else fail("role");}
 #ifdef _WIN32
     WSACleanup();

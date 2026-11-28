@@ -287,3 +287,28 @@ observed snapshot and only when the saved state is at most 600 ms old and
 compares complete local states against an independent reference; no radio,
 hardware, absolute clock/phase synchronization or speedup claim. This is a
 headless experiment; graphical and embedded integration remain separate.
+
+### M17 — checkpoint-aware desktop audition
+
+Start the viewer, then the localhost worker in another terminal:
+```
+cluster_reaction_view.exe --udp 42000 42001
+cluster_checkpoint_udp.exe send 42001 42000 stream
+```
+The worker sends 2400 snapshots at a requested 50 ms interval, full checkpoint
+every five ticks; Ctrl+C stops it. This high checkpoint rate is a desktop
+experiment, not an RF bandwidth recommendation. Original snapshot-only worker
+remains supported. Restart both to reset test epoch/sequence. Hold left button
+or R to select local immediately; release/re-enable requires a new snapshot
+above the retained sequence high-water. During manual override drain but ignore
+incoming packets and invalidate partial checkpoint assembly. Autonomous loss
+freezes the last presented image during bounded exact catch-up, then resumes
+local with visual blend; otherwise normal standalone fallback. Footer shows
+CATCH-UP and saved checkpoint sequence. The Windows timer executes up to 32
+individual lattice/projection steps per dispatch, stopping after a soft 2 ms
+compute budget; checkpoint restore, network and painting are separate. No
+hard real-time claim. Headless policy fixture validates frozen presentation,
+exact continuation, manual override and fresh-only rejoin across timer wrap.
+Extracted Windows smoke tests both snapshot-only and checkpoint streams,
+the latter with synthetic hold/release and actual UDP blackout. Visual only;
+no physical RF, board, audio or display timing claim.

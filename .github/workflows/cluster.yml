@@ -157,6 +157,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI failed' }
           python './extracted cluster/spatial_view_smoke.py' './extracted cluster/cluster_reaction.exe' './extracted cluster/cluster_reaction_view.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI UDP failed' }
+          python './extracted cluster/spatial_view_smoke.py' './extracted cluster/cluster_checkpoint_udp.exe' './extracted cluster/cluster_reaction_view.exe' checkpoint
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction GDI checkpoint/override failed' }
           & './extracted cluster/cluster_checkpoint.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint replay failed' }
           python './extracted cluster/checkpoint_udp_test.py' './extracted cluster/cluster_checkpoint_udp.exe'

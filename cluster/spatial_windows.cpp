@@ -1,60 +1,78 @@
 // Visual-only actual-core desktop audition. Optional isolated localhost stream.
 #include "udp_transport.hpp"
-#include "spatial.hpp"
-#include "spatial_handoff.hpp"
+#include "reaction_view.hpp"
 #include <windows.h>
 #include <memory>
 #include <cstdio>
 namespace sf=cluster::spatial;
 namespace {
-sf::ReactionField local;
-sf::Receiver rx(91,1);
-sf::Handoff handoff;
+namespace cp=sf::checkpoint;
+sf::ReactionView view(91);
 std::unique_ptr<Udp> udp;
 std::array<uint32_t,320*240> pixels{};
-bool enabled=false,held=false,smoke=false,udp_smoke=false,saw_remote=false,saw_loss=false;
-uint32_t start=0,last_step=0;
-unsigned accepted=0,rejected=0,recovered=0,paints=0,local_ticks=0,remote_ticks=0;
+bool enabled=false,held=false,smoke=false,udp_smoke=false,checkpoint_smoke=false,saw_remote=false,saw_loss=false;
+bool manual_started=false,manual_finished=false,manual_seen=false,manual_rejoin=false,catchup_witness=false;
+uint32_t start=0,manual_at=0;
+unsigned accepted=0,rejected=0,recovered=0,paints=0,local_ticks=0,remote_ticks=0,frozen_polls=0,loss_caught=0;
+void sync_allowed(){view.allow_remote(enabled&&!held);}
 void update(HWND w){
-    if(udp)for(unsigned i=0;i<8;++i){
-        sf::Packet p{};std::size_t n=0;
+    const auto now=ms();
+    const auto& f=view.follower();
+    if(checkpoint_smoke&&!manual_started&&f.remote()&&f.admitted&&f.view().sequence()<=10){
+        manual_started=true;manual_at=now;SendMessageA(w,WM_LBUTTONDOWN,MK_LBUTTON,0);
+    }
+    if(manual_started&&!manual_finished&&uint32_t(now-manual_at)>=100){
+        manual_finished=true;SendMessageA(w,WM_LBUTTONUP,0,0);
+    }
+    sync_allowed();
+    if(udp)for(unsigned i=0;i<24;++i){
+        cp::Packet p{};std::size_t n=0;
         if(!udp->receive_bytes(p.data(),p.size(),n))break;
-        if(enabled){
-            if(rx.accept(p.data(),n,ms())){++accepted;if(saw_loss)++recovered;}
+        if(view.remote_allowed()){
+            if(view.receive(p.data(),n,ms())){++accepted;if(saw_loss)++recovered;}
             else ++rejected;
         }
     }
-    const auto now=ms();
-    const bool fresh=rx.fresh(now);
-    const bool remote=enabled&&!held&&fresh;
-    if(remote){saw_remote=true;++remote_ticks;}
-    else {
-        ++local_ticks;
-        if(enabled&&!held&&saw_remote&&!fresh)saw_loss=true;
-        if(uint32_t(now-last_step)>=50){last_step=now;local.advance();}
+    // Bounded burst of cooperative slices, soft desktop-only time budget.
+    const bool remote_before=f.remote();
+    const auto caught_before=f.caught_up;
+    const auto budget_start=Clock::now();
+    for(unsigned i=0;i<32;++i){
+        if(!view.step(ms())||Clock::now()-budget_start>=2ms)break;
     }
-    if(remote)last_step=now; // no catch-up on return from remote
-    handoff.select(remote?rx.pixels():local.pixels(),remote,now,held||!enabled);
+    if(remote_before&&!f.remote()&&view.remote_allowed()&&f.view().sequence()<80&&!saw_loss){
+        saw_loss=true;loss_caught=caught_before;
+    }
+    if(f.remote()){
+        saw_remote=true;++remote_ticks;
+        if(manual_finished&&!saw_loss)manual_rejoin=true;
+    }else{
+        ++local_ticks;
+        if(manual_started&&!manual_finished&&!view.remote_allowed())manual_seen=true;
+        if(saw_loss&&f.view().sequence()<51&&f.caught_up>loss_caught)catchup_witness=true;
+    }
+    if(view.frozen())++frozen_polls;
+    view.present(ms());
     InvalidateRect(w,nullptr,FALSE);
-    if(smoke&&uint32_t(now-start)>=(udp_smoke?4000u:600u))DestroyWindow(w);
+    if(smoke&&uint32_t(now-start)>=(checkpoint_smoke?6000u:(udp_smoke?4000u:600u)))DestroyWindow(w);
 }
 LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
     switch(msg){
     case WM_CREATE: return SetTimer(w,1,16,nullptr)?0:-1;
     case WM_TIMER: update(w);return 0;
-    case WM_LBUTTONDOWN:held=true;SetCapture(w);return 0;
-    case WM_LBUTTONUP:held=false;ReleaseCapture();return 0;
-    case WM_CAPTURECHANGED:case WM_CANCELMODE:case WM_KILLFOCUS:held=false;return 0;
+    case WM_LBUTTONDOWN:held=true;sync_allowed();SetCapture(w);return 0;
+    case WM_LBUTTONUP:held=false;sync_allowed();ReleaseCapture();return 0;
+    case WM_CAPTURECHANGED:case WM_CANCELMODE:case WM_KILLFOCUS:held=false;sync_allowed();return 0;
     case WM_KEYDOWN:
         if(wp==VK_ESCAPE)DestroyWindow(w);
-        else if(wp=='R'&&udp&&!(lp&(1L<<30))){enabled=!enabled;if(!enabled)rx.disconnect();}
+        else if(wp=='R'&&udp&&!(lp&(1L<<30))){enabled=!enabled;sync_allowed();}
         return 0;
     case WM_PAINT:{
         PAINTSTRUCT ps{};HDC dc=BeginPaint(w,&ps);
         RECT client{};GetClientRect(w,&client);
         std::array<uint16_t,320> row{};
         for(std::size_t y=0;y<240;++y){
-            sf::row(handoff.pixels(),y,row.data());
+            sf::row(view.image(),y,row.data());
             for(std::size_t x=0;x<320;++x){
                 const auto p=row[x];
                 pixels[y*320+x]=uint32_t((p>>11)&31)*255/31*65536u+
@@ -70,9 +88,10 @@ LRESULT CALLBACK wnd(HWND w,UINT msg,WPARAM wp,LPARAM lp){
         FillRect(dc,&bar,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
         SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(225,230,235));
         char status[200];
-        std::snprintf(status,sizeof(status),"%s%s | local %u remote %u | Hold: local  R: remote  Esc: quit",
-            handoff.remote()?"REMOTE":"LOCAL",handoff.fading()?" (visual blend)":"",
-            unsigned(local.sequence()),unsigned(rx.sequence()));
+        const auto& f=view.follower();
+        std::snprintf(status,sizeof(status),"%s%s | L%u R%u C%u | Hold: local  R: remote  Esc: quit",
+            view.frozen()?"CATCH-UP":(f.remote()?"REMOTE":"LOCAL"),view.blending()&&!view.frozen()?" (blend)":"",
+            unsigned(f.local().sequence()),unsigned(f.view().sequence()),unsigned(f.saved_sequence()));
         DrawTextA(dc,status,-1,&bar,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         if(result!=GDI_ERROR&&result!=0)++paints;
         EndPaint(w,&ps);return 0;
@@ -88,10 +107,11 @@ unsigned port(const char* s){
 }
 }
 int main(int argc,char** argv){
-    udp_smoke=argc==4&&std::strcmp(argv[1],"--udp-smoke")==0;
+    checkpoint_smoke=argc==4&&std::strcmp(argv[1],"--checkpoint-smoke")==0;
+    udp_smoke=checkpoint_smoke||(argc==4&&std::strcmp(argv[1],"--udp-smoke")==0);
     smoke=udp_smoke||(argc==2&&std::strcmp(argv[1],"--smoke")==0);
     const bool network=udp_smoke||(argc==4&&std::strcmp(argv[1],"--udp")==0);
-    if(argc!=1&&!smoke&&!network)fail("usage: cluster_reaction_view [--smoke | --udp own-port peer-port | --udp-smoke own-port peer-port]");
+    if(argc!=1&&!smoke&&!network)fail("usage: cluster_reaction_view [--smoke | --udp own-port peer-port | --udp-smoke own-port peer-port | --checkpoint-smoke own-port peer-port]");
     if(network){
         const auto own=port(argv[2]),peer=port(argv[3]);
         if(own==peer)fail("distinct ports required");
@@ -105,16 +125,19 @@ int main(int argc,char** argv){
     HWND w=CreateWindowExA(0,wc.lpszClassName,"VIBEWARE / REACTION - distributed visual synthesis",
         WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,800,640,nullptr,nullptr,instance,nullptr);
     if(!w)fail("CreateWindow");
-    start=last_step=ms();handoff.select(local.pixels(),false,start);
+    start=ms();sync_allowed();view.present(start);
     ShowWindow(w,SW_SHOW);UpdateWindow(w);
     if(udp_smoke)std::cout<<"READY"<<std::endl;
     MSG msg{};int rc=0;while((rc=GetMessageA(&msg,nullptr,0,0))>0){TranslateMessage(&msg);DispatchMessageA(&msg);}
     if(network){udp.reset();WSACleanup();}
     if(smoke){
         std::cout<<"GDI paints="<<paints<<" local_ticks="<<local_ticks<<" remote_ticks="<<remote_ticks
-            <<" local_seq="<<local.sequence()<<" accepted="<<accepted<<" rejected="<<rejected
-            <<" recovered="<<recovered<<" loss="<<saw_loss<<'\n';
-        if(paints<2||local.sequence()<2||!local_ticks)return 1;
+            <<" local_seq="<<view.follower().local().sequence()<<" accepted="<<accepted<<" rejected="<<rejected
+            <<" recovered="<<recovered<<" loss="<<saw_loss<<" admitted="<<view.follower().admitted
+            <<" catchup="<<catchup_witness<<" frozen_polls="<<frozen_polls<<" manual="<<manual_seen
+            <<" manual_rejoin="<<manual_rejoin<<'\n';
+        if(paints<2||view.follower().local().sequence()<2||!local_ticks)return 1;
+        if(checkpoint_smoke&&(!catchup_witness||!frozen_polls||!manual_seen||!manual_rejoin||view.follower().admitted<5))return 1;
         if(udp_smoke&&(!remote_ticks||accepted<20||!rejected||!saw_loss||!recovered))return 1;
     }
     return rc<0?1:0;

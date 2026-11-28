@@ -21,6 +21,7 @@ public:
     uint32_t saved_sequence()const{return saved_seq_;}
     uint32_t catchup_target()const{return target_;}
     bool remote()const{return was_remote_;}
+    void suspend_remote(){view_.disconnect();checkpoint_.suspend();}
     bool receive(const uint8_t* p,std::size_t n,uint32_t now){
         if(n==spatial::bytes)return view_.accept(p,n,now);
         if(!checkpoint_.accept(p,n,now))return false;

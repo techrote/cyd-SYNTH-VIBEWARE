@@ -48,6 +48,7 @@ public:
     uint32_t sequence()const{return seq_;}
     bool ready()const{return complete_;}
     void discard(){complete_=false;}
+    void suspend(){active_=false;complete_=false;mask_=0;} // retain high-water
     void expire(uint32_t now){if(active_&&uint32_t(now-started_)>=assembly_ms){active_=false;mask_=0;}}
     // Fixed first-arrival timeout, not extended by duplicates. Newer sequence
     // supersedes incomplete older state; expired sequence cannot be resurrected.
