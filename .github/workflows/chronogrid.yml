@@ -1,0 +1,127 @@
+name: CHRONOGRID author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/chronogrid/**'
+      - '.github/workflows/chronogrid.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: cmake -S instruments/chronogrid -B build/grid -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - run: cmake --build build/grid --config Release
+      - run: ctest --test-dir build/grid -C Release --output-on-failure -V
+      - if: runner.os == 'Linux'
+        run: |
+          mkdir grid-media
+          build/grid/chronogrid_replay grid-media
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronogrid-native-media
+          path: grid-media/
+          if-no-files-found: error
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'grid-package','grid-package/media' | Out-Null
+          Copy-Item build/grid/Release/chronogrid.exe grid-package
+          Copy-Item build/grid/Release/chronogrid_replay.exe grid-package
+          Copy-Item instruments/chronogrid/README.md grid-package
+          git rev-parse HEAD | Set-Content -Encoding ascii grid-package/source-commit.txt
+          if ($LASTEXITCODE -ne 0) {throw 'Source commit receipt failed'}
+          git rev-parse 'HEAD^{tree}' | Set-Content -Encoding ascii grid-package/source-tree.txt
+          if ($LASTEXITCODE -ne 0) {throw 'Source tree receipt failed'}
+          # Refuse an accidental regression to the external MSVC C++ runtime.
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vs) {throw 'Visual Studio discovery failed'}
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) {throw 'PE dependency inspector unavailable'}
+          $executables = @(Get-ChildItem grid-package -Filter '*.exe' -File)
+          if ($executables.Count -ne 2) {throw 'Unexpected package executable count'}
+          foreach ($exe in $executables) {
+            $imports = (& $dumpbin.FullName /dependents $exe.FullName | Out-String)
+            if ($LASTEXITCODE -ne 0 -or $imports -notmatch '(?im)^\s*KERNEL32\.dll\s*$') {throw "PE dependency inspection failed: $($exe.Name)"}
+            if ($imports -match '(?im)^\s*(MSVCP\d+[^.\r\n]*|VCRUNTIME\d+[^.\r\n]*|CONCRT\d+[^.\r\n]*|MSVCR\d+[^.\r\n]*)\.dll\s*$') {throw "External MSVC runtime import: $($exe.Name)"}
+            Add-Content -Encoding ascii grid-package/pe-dependencies.txt $exe.Name
+            Add-Content -Encoding ascii grid-package/pe-dependencies.txt $imports
+          }
+          & ./grid-package/chronogrid_replay.exe grid-package/media
+          if ($LASTEXITCODE -ne 0) {throw 'Media failed'}
+          $root = (Resolve-Path grid-package).Path
+          $payloads = @(Get-ChildItem grid-package -File -Recurse | Sort-Object FullName)
+          $payloads | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash) $($_.FullName.Substring($root.Length + 1).Replace('\','/'))"
+          } | Set-Content -Encoding ascii grid-package/manifest.sha256
+          Compress-Archive -Path 'grid-package/*' -DestinationPath chronogrid-windows.zip
+          Expand-Archive chronogrid-windows.zip 'extracted grid'
+          $lines = @(Get-Content 'extracted grid/manifest.sha256')
+          if ($lines.Count -ne $payloads.Count) {throw 'Manifest count mismatch'}
+          $lines | ForEach-Object {
+            if ($_ -notmatch '^([A-Fa-f0-9]{64}) (.+)$') {throw 'Malformed manifest'}
+            $expected = $Matches[1]; $relative = $Matches[2]
+            if ((Get-FileHash (Join-Path 'extracted grid' $relative) -Algorithm SHA256).Hash -ne $expected) {throw "Checksum failed: $relative"}
+          }
+          & './extracted grid/chronogrid_replay.exe'
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted replay failed'}
+          & './extracted grid/chronogrid.exe' --smoke
+          if ($LASTEXITCODE -ne 0) {throw 'Extracted GDI smoke failed'}
+          (Get-FileHash chronogrid-windows.zip -Algorithm SHA256).Hash | Set-Content chronogrid-windows.sha256
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chronogrid-windows
+          path: |
+            chronogrid-windows.zip
+            chronogrid-windows.sha256
+          if-no-files-found: error
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/chronogrid/replay.cpp -o grid_sanitized
+      - run: ./grid_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+  target:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18
+      - run: |
+          set -o pipefail
+          mkdir grid-target-evidence
+          pio run -d instruments/chronogrid/firmware -e cyd-chronogrid | tee grid-target-evidence/build.txt
+      - run: |
+          pio pkg list -d instruments/chronogrid/firmware > grid-target-evidence/toolchain.txt
+          git rev-parse HEAD > grid-target-evidence/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > grid-target-evidence/source-tree.txt
+          cp instruments/chronogrid/firmware/.pio/build/cyd-chronogrid/firmware.map grid-target-evidence/
+          sha256sum instruments/chronogrid/firmware/.pio/build/cyd-chronogrid/firmware.elf > grid-target-evidence/elf-sha256.txt
+          test -s grid-target-evidence/firmware.map
+          (cd grid-target-evidence && sha256sum source-commit.txt source-tree.txt firmware.map toolchain.txt elf-sha256.txt build.txt > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronogrid-target-map-not-installable
+          path: grid-target-evidence/
+          if-no-files-found: error

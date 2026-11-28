@@ -1,20 +1,20 @@
 {
-  "schema": 2,
+  "schema": 3,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
-    "head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
-    "tree": "8bf304338573caccfc6925875ddfe1d048fb3826",
+    "head": "724d4d2251d9f190e1c412432594239ccd8325fd",
+    "tree": "3a283affa72cff41b00c8a2d6a1ccd72b2f5394f",
     "author_integration_runs": [
-      46102984182,
-      46102984161
+      46108123155,
+      46108123157
     ],
     "windows_artifacts": [
-      15246432643,
-      15246670783
+      15248417526,
+      15248387458
     ],
-    "independent_qa_run": 46104942985,
-    "disposition": "preserve frozen M3 audition and QA receipts; no substitution"
+    "independent_qa_run": 46109559756,
+    "disposition": "preserve M4 and prior M3 pins; no substitution"
   },
   "sources": [
     {
@@ -30,23 +30,45 @@
       "tree": "493d6a57f2a190ef400edfb19e8638ac648086fd",
       "path": "instruments/fm1-ports/xenoresonator/",
       "author_run": 46107431719
+    },
+    {
+      "pr": 18,
+      "head": "153e6bbd563242c9bc8bbeda47d1e40158877d41",
+      "tree": "4127541750c6ea32150ee33bdac9369aa2a054f9",
+      "path": "instruments/chronogrid/",
+      "author_run": 46108951057,
+      "windows_artifact": 15248384121,
+      "independent_qa_run": 46109559756
     }
   ],
   "workflow_overrides": [
     ".github/workflows/phasespace.yml",
-    ".github/workflows/port-xenoresonator.yml"
+    ".github/workflows/port-xenoresonator.yml",
+    ".github/workflows/chronogrid.yml"
   ],
   "integration_gate": "PENDING_NEW_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
-  "qa_gate": "PENDING_M4_INTEGRATION",
+  "qa_gate": "PENDING_NEW_EXACT_HEAD_PACKAGES",
   "owner_gate": "HOLD",
   "changed_source_paths": [
-    "instruments/phasespace/README.md",
-    "instruments/phasespace/core.hpp",
-    "instruments/phasespace/replay.cpp",
-    "instruments/fm1-ports/xenoresonator/README.md",
-    "instruments/fm1-ports/xenoresonator/core.hpp",
-    "instruments/fm1-ports/xenoresonator/exchange.hpp",
-    "instruments/fm1-ports/xenoresonator/replay.cpp"
-  ]
+    "instruments/chronogrid/CMakeLists.txt",
+    "instruments/chronogrid/README.md",
+    "instruments/chronogrid/core.hpp",
+    "instruments/chronogrid/firmware/platformio.ini",
+    "instruments/chronogrid/firmware/src/main.cpp",
+    "instruments/chronogrid/replay.cpp",
+    "instruments/chronogrid/windows.cpp"
+  ],
+  "repairs": [
+    "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence"
+  ],
+  "prior_receipts": {
+    "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
+    "m3_qa_run": 46104942985,
+    "m3_windows_artifacts": [
+      15246432643,
+      15246670783
+    ],
+    "qa_batch003_head": "1509096984bbdecef3943b808f700376686ee5ab"
+  }
 }

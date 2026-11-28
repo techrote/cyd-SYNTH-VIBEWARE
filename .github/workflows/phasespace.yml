@@ -16,6 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: cmake -S instruments/phasespace -B build/phase -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
       - run: cmake --build build/phase --config Release
       - run: ctest --test-dir build/phase -C Release --output-on-failure -V
@@ -77,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer instruments/phasespace/replay.cpp -o phase_sanitized
       - run: ./phase_sanitized
         env:
@@ -86,6 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -95,8 +101,11 @@ jobs:
           mkdir phase-target-evidence
           pio pkg list -d instruments/phasespace/firmware > phase-target-evidence/toolchain.txt
           git rev-parse HEAD > phase-target-evidence/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > phase-target-evidence/source-tree.txt
           cp instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.map phase-target-evidence/
           sha256sum instruments/phasespace/firmware/.pio/build/cyd-phasespace/firmware.elf > phase-target-evidence/elf-sha256.txt
+          test -s phase-target-evidence/firmware.map
+          (cd phase-target-evidence && sha256sum source-commit.txt source-tree.txt firmware.map toolchain.txt elf-sha256.txt > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: phasespace-target-map-not-installable

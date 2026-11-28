@@ -12,6 +12,8 @@ jobs:
         working-directory: instruments/fm1-ports/xenoresonator
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: |
           mkdir media
           g++ -std=c++17 -O2 -Wall -Wextra replay.cpp -o replay
@@ -30,6 +32,8 @@ jobs:
         working-directory: instruments/fm1-ports/xenoresonator
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -81,19 +85,29 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install platformio==6.1.18
       - run: pio run -d instruments/fm1-ports/xenoresonator
-      - run: |
+      - env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
           cd instruments/fm1-ports/xenoresonator
           mkdir -p target-receipts
-          find .pio/build -name '*.map' -exec cp {} target-receipts/ \;
+          git rev-parse HEAD > target-receipts/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > target-receipts/source-tree.txt
+          test "$(cat target-receipts/source-commit.txt)" = "$EXPECTED_HEAD"
+          cp .pio/build/cyd-port-xeno/firmware.map target-receipts/
+          test -s target-receipts/firmware.map
           pio pkg list > target-receipts/packages.txt
           find .pio/libdeps -iname 'LICENSE*' -o -iname 'COPYING*' > target-receipts/notice-paths.txt
           sha256sum .pio/build/cyd-port-xeno/firmware.elf > target-receipts/elf.sha256
+          (cd target-receipts && sha256sum source-commit.txt source-tree.txt firmware.map packages.txt notice-paths.txt elf.sha256 > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: port-xeno-target-receipts-no-firmware
           path: instruments/fm1-ports/xenoresonator/target-receipts/
+          if-no-files-found: error
