@@ -51,6 +51,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Field replay/media failed' }
           & "$pkg/cluster_dual_test.exe" "$pkg/dual-demo.wav"
           if ($LASTEXITCODE -ne 0) { throw 'Dual replay/media failed' }
+          Copy-Item build/cluster/Release/cluster_spatial.exe $pkg
+          Copy-Item cluster/spatial_udp_test.py $pkg
           Copy-Item cluster/README.md $pkg
           git rev-parse HEAD | Set-Content "$pkg/source-commit.txt"
           Compress-Archive -Path "$pkg/*" -DestinationPath cluster-native-windows.zip
@@ -89,6 +91,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted transport capture failed' }
           & './extracted cluster/cluster_ble_test.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted BLE control failed' }
+          & './extracted cluster/cluster_spatial.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial replay failed' }
+          python './extracted cluster/spatial_udp_test.py' './extracted cluster/cluster_spatial.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial UDP failed' }
           (Get-FileHash cluster-native-windows.zip -Algorithm SHA256).Hash | Set-Content cluster-native-windows.sha256
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -146,6 +152,12 @@ jobs:
 
       - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/ble_control_test.cpp -o ble_sanitized
       - run: ./ble_sanitized
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+
+      - run: g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer cluster/spatial_native.cpp -o spatial_sanitized
+      - run: ./spatial_sanitized
         env:
           UBSAN_OPTIONS: halt_on_error=1
           ASAN_OPTIONS: halt_on_error=1

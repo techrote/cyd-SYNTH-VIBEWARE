@@ -55,6 +55,18 @@ public:
         close(s_);
 #endif
     }
+    bool send_bytes(const uint8_t* p,std::size_t n) {
+        if(!p||!n||n>1200)return false;
+        return sendto(s_,reinterpret_cast<const char*>(p),int(n),0,reinterpret_cast<const sockaddr*>(&peer_),sizeof(peer_))==int(n);
+    }
+    bool receive_bytes(uint8_t* p,std::size_t capacity,std::size_t& size) {
+        size=0;if(!p||!capacity||capacity>1200)return false;
+        std::array<char,1201> buf{};sockaddr_in src{};AddrLen len=sizeof(src);
+        const auto n=recvfrom(s_,buf.data(),int(buf.size()),0,reinterpret_cast<sockaddr*>(&src),&len);
+        if(n<0)return false;
+        if(src.sin_addr.s_addr!=peer_.sin_addr.s_addr||src.sin_port!=peer_.sin_port||n==0||std::size_t(n)>capacity){++rejected;return false;}
+        size=std::size_t(n);std::memcpy(p,buf.data(),size);return true;
+    }
     bool send(const Frame& f) {
         if(!f.size||f.size>max_frame) return false;
         return sendto(s_,reinterpret_cast<const char*>(f.bytes.data()),int(f.size),0,reinterpret_cast<const sockaddr*>(&peer_),sizeof(peer_))==int(f.size);
