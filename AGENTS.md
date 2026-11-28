@@ -1,5 +1,9 @@
 # CYD SYNTH VIBEWARE — worker protocol
 
+## Active deployment — owner-authorized 28 November 2026
+
+The [programme activation](https://github.com/techrote/cyd-SYNTH-VIBEWARE/issues/1#issuecomment-7232382620) supersedes the historical proposed schedule below. Five active lanes: PLATFORM/PERFORMANCE (#2, :09), PORT (#13, :18), TOUCH (#3–6, :38), HYBRID (#9, :45), QA/MERGEDOWN (#7, :49). PORT owns standalone FM-1 interpretations in instruments/fm1-ports/; TOUCH owns original instruments and rotates creative mandates; HYBRID owns cluster/ and distributed transport; PLATFORM owns optional shared runtime and measured optimization; QA independently qualifies, packages, and coordinates integration. Local adapters remain independently buildable. Draft/HOLD, no unsolicited main merge or physical deployment. Historical six/eight-lane plans below are not active rosters.
+
 Repository: techrote/cyd-SYNTH-VIBEWARE only. Programme #1. Read README.md, docs/ARCHITECTURE.md, docs/HARDWARE.md, docs/WORKERS.md, docs/QUALIFICATION.md and the live issue/PR for your mandate. Read the catalogue and roadmap when choosing new work. References are read-only and adoption is not automatic.
 
 ## Every invocation

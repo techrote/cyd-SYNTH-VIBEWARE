@@ -1,0 +1,72 @@
+name: PLATFORM P15 timer-DAC compile-only comparison
+on:
+  pull_request:
+    paths:
+      - 'platform/dac-lifecycle/timer_lifecycle*'
+      - 'platform/dac-lifecycle/esp32_timer_dac.hpp'
+      - 'platform/dac-lifecycle/prepare_p15.py'
+      - '.github/workflows/platform-timer-dac.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          ref: 9382d8beea9dc259cb148c68f1c2899a857e18d1
+          path: consumer
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Lifecycle and exact consumer native replay
+        run: |
+          set -euo pipefail
+          d=platform/dac-lifecycle
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror "$d/timer_lifecycle_test.cpp" -o lifecycle
+          ./lifecycle
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all "$d/timer_lifecycle_test.cpp" -o lifecycle-san
+          ./lifecycle-san
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I "$d" consumer/instruments/fm1-ports/grimoire/audio_owner_test.cpp -o owner
+          ./owner
+          python "$d/prepare_p15.py" consumer
+      - name: Build actual combined target and inspect direct callback
+        run: |
+          set -euo pipefail
+          d=consumer/instruments/fm1-ports/grimoire
+          mkdir -p target-receipts
+          git rev-parse HEAD HEAD^{tree} > target-receipts/platform.txt
+          git -C consumer rev-parse HEAD HEAD^{tree} > target-receipts/consumer.txt
+          git -C consumer diff > target-receipts/adapter.patch
+          cp platform/dac-lifecycle/{clock_sink,timer_lifecycle,esp32_timer_dac}.hpp target-receipts/
+          cp "$d/platformio.ini" target-receipts/
+          python -m pip install platformio==6.1.18 intelhex==2.3.0
+          pio --version > target-receipts/toolchain.txt
+          pio run -d "$d" -e cyd-grimoire-frontpanel 2>&1 | tee target-receipts/build.log
+          pio pkg list -d "$d" > target-receipts/packages.txt
+          find "$d/.pio/libdeps" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > target-receipts/notice-hashes.txt
+          elf="$d/.pio/build/cyd-grimoire-frontpanel/firmware.elf"
+          cp "${elf%.elf}.map" target-receipts/
+          sha256sum "$elf" > target-receipts/elf.sha256
+          objdump="$HOME/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-objdump"
+          "$objdump" -t "$elf" > target-receipts/symbols.txt
+          "$objdump" -d --disassemble=p15_sample_tick "$elf" > target-receipts/callback.txt
+          "$objdump" -d -j .iram0.text "$elf" > target-receipts/iram-disassembly.txt
+          grep -E '\.iram0\.text.*[[:space:]]p15_sample_tick$' target-receipts/symbols.txt
+          grep -E '\.dram[[:alnum:]_.]*[[:space:]].*4sinkE$' target-receipts/symbols.txt
+          grep -F '<p15_sample_tick>:' target-receipts/callback.txt
+          if grep -E '[[:space:]]call(x)?[04812]+[[:space:]]' target-receipts/callback.txt; then
+            echo "Direct callback contains an out-of-line call; review required"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-p15-target-receipts-no-firmware
+          path: target-receipts/
+          if-no-files-found: warn
