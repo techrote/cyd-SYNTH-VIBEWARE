@@ -23,8 +23,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay
           ./replay "native media"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror strip_test.cpp -o strip-test
+          ./strip-test
           clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all replay.cpp -o replay-san
           ./replay-san "sanitized media"
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all strip_test.cpp -o strip-san
+          ./strip-san
           diff -qr "native media" "sanitized media"
           (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
@@ -48,16 +52,23 @@ jobs:
         with:
           msystem: UCRT64
           install: mingw-w64-ucrt-x86_64-gcc
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
       - name: Build exact source and stage
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          mkdir -p "owner package/media"
           g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "owner package/replay.exe" -static
           g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o "owner package/Grimoire.exe" -lwinmm -lgdi32 -luser32 -static
-          cp core.hpp replay.cpp windows.cpp README.md "owner package/"
-          git rev-parse HEAD 'HEAD^{tree}' > "owner package/SOURCE.txt"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror strip_test.cpp -o "owner package/strip-test.exe" -static
+          cp core.hpp strip.hpp replay.cpp strip_test.cpp windows.cpp README.md M2.md "owner package/"
           g++ --version > "owner package/TOOLCHAIN.txt"
           objdump -p "owner package/Grimoire.exe" | grep 'DLL Name:' > "owner package/IMPORTS.txt"
           if grep -Ei 'DLL Name: (libgcc|libstdc\+\+|libwinpthread)' "owner package/IMPORTS.txt"; then exit 1; fi
@@ -77,6 +88,7 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           ./replay.exe "reproduced media"
           diff -qr media "reproduced media"
+          ./strip-test.exe
           ./Grimoire.exe --smoke
       - uses: actions/upload-artifact@v4
         with:

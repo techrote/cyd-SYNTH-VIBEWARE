@@ -6,7 +6,7 @@
 #include <array>
 #include <iostream>
 #include <cstring>
-#include "core.hpp"
+#include "strip.hpp"
 using namespace grimoire;
 namespace {
 Engine engine;
@@ -15,7 +15,7 @@ constexpr int blocks=4, block=128;
 std::array<std::array<std::int16_t,block>,blocks> audio{};
 std::array<WAVEHDR,blocks> headers{};
 std::array<std::uint32_t,width*height> frame{};
-std::array<std::uint16_t,width> strip{};
+std::array<std::uint16_t,width*8> strip{};
 bool dragging=false,editing=false,smoke=false,failed=false;
 Path draft{}; int points=0,dir=1,tempo=1,paints=0; ULONGLONG last_paint=0;
 void emergency(){engine.panic();dragging=editing=false;points=0;if(GetCapture())ReleaseCapture();if(device&&waveOutReset(device)!=MMSYSERR_NOERROR)failed=true;}
@@ -23,7 +23,7 @@ void close_audio(){if(!device)return;emergency();for(auto& h:headers)if(h.dwFlag
 bool open_audio(){WAVEFORMATEX fmt{};fmt.wFormatTag=WAVE_FORMAT_PCM;fmt.nChannels=1;fmt.nSamplesPerSec=rate;fmt.wBitsPerSample=16;fmt.nBlockAlign=2;fmt.nAvgBytesPerSec=rate*2;if(waveOutOpen(&device,WAVE_MAPPER,&fmt,0,0,CALLBACK_NULL)!=MMSYSERR_NOERROR){device=nullptr;return false;}for(int i=0;i<blocks;++i){auto& h=headers[i];h.lpData=reinterpret_cast<LPSTR>(audio[i].data());h.dwBufferLength=block*2;if(waveOutPrepareHeader(device,&h,sizeof(h))!=MMSYSERR_NOERROR){close_audio();return false;}}return true;}
 Point mapped(HWND hwnd,int x,int y){RECT r{};GetClientRect(hwnd,&r);int w=std::max(1L,r.right),h=std::max(1L,r.bottom);return clamp({(x*width/w-8)*127/303,(y*height/h-38)*127/193});}
 void pump(HWND hwnd){if(failed)return;if(dragging&&!smoke){POINT p{};if(!(GetAsyncKeyState(VK_LBUTTON)&0x8000)||!GetCursorPos(&p)||!ScreenToClient(hwnd,&p)){engine.up();dragging=false;if(GetCapture()==hwnd)ReleaseCapture();}else engine.move(mapped(hwnd,p.x,p.y));}if(device){for(int i=0;i<blocks;++i){auto& h=headers[i];if(!(h.dwFlags&WHDR_INQUEUE)){engine.process(audio[i].data(),block);if(waveOutWrite(device,&h,sizeof(h))!=MMSYSERR_NOERROR){failed=true;emergency();break;}}}}const auto now=GetTickCount64();if(now-last_paint>=33){last_paint=now;InvalidateRect(hwnd,nullptr,FALSE);}}
-void raster(){auto s=engine.snapshot();for(int y=0;y<height;++y){row(s,y,strip.data());for(int x=0;x<width;++x){auto c=strip[x];frame[y*width+x]=((c>>11)*255/31<<16)|(((c>>5)&63)*255/63<<8)|((c&31)*255/31);}}}
+void raster(){auto s=engine.snapshot();for(int y=0;y<height;y+=8){if(!render_strip(s,y,8,strip.data())){failed=true;return;}for(int i=0;i<width*8;++i){auto c=strip[i];frame[y*width+i]=((c>>11)*255/31<<16)|(((c>>5)&63)*255/63<<8)|((c&31)*255/31);}}}
 LRESULT CALLBACK wnd(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){switch(msg){
 case WM_LBUTTONDOWN:{RECT r{};GetClientRect(hwnd,&r);int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);if(y*height/std::max(1L,r.bottom)<32){int group=std::clamp(int(x*5/std::max(1L,r.right)),0,4);if(group<3){emergency();engine.material(group);}else if(group==3){if(engine.snapshot().auto_on){emergency();}else if(!failed)engine.start_orbit();}else emergency();}else if(!failed){auto p=mapped(hwnd,x,y);if(editing){draft[points++]=p;if(points==8){engine.set_path(draft);editing=false;points=0;}}else{dragging=true;SetCapture(hwnd);engine.down(p);}}InvalidateRect(hwnd,nullptr,FALSE);return 0;}
 case WM_MOUSEMOVE:if(dragging)engine.move(mapped(hwnd,GET_X_LPARAM(lp),GET_Y_LPARAM(lp)));return 0;
