@@ -35,7 +35,7 @@ static void receiver(Udp& udp,bool faults){
     sf::ReactionField reference;
     sf::ReactionField::Checkpoint actual{},expected{};
     unsigned rejected=0,accepted=0,matched=0,remote_polls=0;
-    bool loss=false,rejoin=false;
+    bool loss=false,rejoin=false,catchup_during_loss=false;
     auto start=Clock::now();
     std::cout<<"READY"<<std::endl;
     uint32_t checked=0;
@@ -50,6 +50,7 @@ static void receiver(Udp& udp,bool faults){
         follower.tick(ms());
         check(follower.slices-before<=1,"unbounded slice");
         if(follower.remote()){++remote_polls;if(loss)rejoin=true;}
+        if(loss&&!rejoin&&follower.caught_up>0&&!follower.remote())catchup_during_loss=true;
         if(remote_before&&!follower.remote()&&follower.view().sequence()<80)loss=true;
         if(!follower.local().busy()&&follower.local().sequence()!=checked){
             checked=follower.local().sequence();
@@ -60,16 +61,72 @@ static void receiver(Udp& udp,bool faults){
             check(reference.export_checkpoint(expected)&&follower.local().export_checkpoint(actual)&&actual==expected,"state mismatch");
             ++matched;
         }
-        std::this_thread::sleep_for(1ms);
+        if(follower.catchup_target())std::this_thread::yield();
+        else std::this_thread::sleep_for(1ms);
     }
     check(follower.view().sequence()==80&&follower.admitted>= (faults?5u:10u)&&matched>0&&remote_polls>0,"insufficient stream");
-    if(faults)check(loss&&rejoin&&rejected>0&&follower.caught_up>0,"no failover witness");
+    if(faults)check(loss&&rejoin&&rejected>0&&catchup_during_loss,"no failover witness");
     std::cout<<"PASS checkpoint_udp accepted="<<accepted<<" rejected="<<rejected
         <<" admitted="<<follower.admitted<<" refused="<<follower.refused
         <<" matched="<<matched<<" caught_up="<<follower.caught_up<<" cold_losses="<<follower.cold_losses
-        <<" loss="<<loss<<" rejoin="<<rejoin<<" last_seq="<<follower.view().sequence()<<'\n';
+        <<" loss="<<loss<<" rejoin="<<rejoin<<" catchup_during_loss="<<catchup_during_loss<<" last_seq="<<follower.view().sequence()<<'\n';
+}
+static void policy_test(){
+    sf::ReactionField worker;
+    sf::ReactionField::Checkpoint state{},actual{};
+    cp::Follower f(91);
+    auto snapshot=[&](cp::Follower& dst,uint32_t now){
+        const auto p=sf::encode(91,worker);
+        check(dst.receive(p.data(),p.size(),now),"policy snapshot");
+    };
+    auto checkpoint=[&](cp::Follower& dst,uint32_t now,bool complete){
+        check(worker.export_checkpoint(state),"policy export");
+        const cp::Prepared enc(state);
+        for(std::size_t j=0;j<cp::parts-(complete?0u:1u);++j){
+            auto p=enc.packet(91,worker.sequence(),j);
+            check(p==cp::encode(91,worker.sequence(),state,j),"prepared byte parity");
+            check(dst.receive(p.data(),p.size(),now),"policy fragment");
+        }
+    };
+    const uint32_t base=0xffffff80u;
+    for(unsigned i=1;i<=15;++i)check(worker.advance(),"policy advance");
+    checkpoint(f,base,true);f.tick(base);
+    check(f.admitted==0,"future checkpoint restored without presentation");
+    snapshot(f,base+1);f.tick(base+1);
+    check(f.admitted==1&&f.saved_sequence()==15&&f.remote(),"checkpoint admitted");
+    for(unsigned i=16;i<=19;++i){
+        check(worker.advance(),"policy advance");
+        snapshot(f,base+i);
+        if(i==18)checkpoint(f,base+i,false);
+        f.tick(base+i);
+    }
+    check(f.saved_sequence()==15,"incomplete transfer destroyed checkpoint");
+    const uint32_t loss=base+19+sf::lease_ms;
+    f.tick(loss);
+    check(!f.remote()&&f.catchup_target()==19,"loss target");
+    for(unsigned i=0;i<100&&f.catchup_target();++i){
+        const auto n=f.slices;f.tick(loss);
+        check(f.slices-n<=1,"policy slice bound");
+    }
+    check(f.caught_up==1&&f.local().sequence()==19&&f.local().export_checkpoint(actual),"catch-up endpoint");
+    check(worker.export_checkpoint(state)&&actual==state,"catch-up state parity");
+    // A completed future state without a fresh matching presentation must expire.
+    cp::Follower stale(91);
+    checkpoint(stale,base,true);stale.tick(base+cp::assembly_ms);
+    snapshot(stale,base+cp::assembly_ms+1);stale.tick(base+cp::assembly_ms+1);
+    check(stale.admitted==0&&stale.refused==1,"expired completion resurrected");
+    // A valid but overly distant checkpoint must not trigger unbounded catch-up.
+    cp::Follower gap(91);
+    snapshot(gap,base);checkpoint(gap,base,true);gap.tick(base);
+    check(gap.admitted==1,"gap setup");
+    for(unsigned i=0;i<=cp::Follower::max_gap;++i)check(worker.advance(),"gap advance");
+    snapshot(gap,base+50);gap.tick(base+50);
+    gap.tick(base+50+sf::lease_ms);
+    check(gap.cold_losses==1&&gap.catchup_target()==0,"unbounded gap accepted");
+    std::cout<<"PASS checkpoint policy\n";
 }
 int main(int argc,char** argv){
+    if(argc==1){policy_test();return 0;}
     if(argc!=5)fail("usage: checkpoint_udp send|receive own-port peer-port clean|faults");
     const bool faults=std::strcmp(argv[4],"faults")==0;
     check(faults||std::strcmp(argv[4],"clean")==0,"mode");

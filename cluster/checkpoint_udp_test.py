@@ -9,6 +9,8 @@ def ports():
         b.bind(('127.0.0.1', 0))
         return a.getsockname()[1], b.getsockname()[1]
 
+subprocess.run([sys.argv[1]], check=True, timeout=10)
+
 for mode in ('clean', 'faults'):
     a, b = ports()
     receiver = subprocess.Popen([sys.argv[1], 'receive', str(a), str(b), mode],
