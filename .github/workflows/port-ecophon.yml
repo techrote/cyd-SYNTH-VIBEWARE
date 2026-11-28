@@ -1,0 +1,105 @@
+name: PORT Ecophon author qualification
+on:
+  pull_request:
+    paths:
+      - 'instruments/fm1-ports/ecophon/**'
+      - '.github/workflows/port-ecophon.yml'
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Actual native replay and sanitizers
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime-test
+          ./replay "native media"
+          ./runtime-test
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined replay.cpp -o replay-san
+          clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime_test.cpp -o runtime-san
+          ./replay "sanitized media"
+          ./runtime-san
+          diff -qr "native media" "sanitized media"
+          (cd "native media" && sha256sum *.wav *.ppm) > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecophon-native-Linux
+          path: |
+            instruments/fm1-ports/ecophon/native media/
+            instruments/fm1-ports/ecophon/SHA256SUMS.txt
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: instruments/fm1-ports/ecophon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Verify exact checkout
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne "${{ github.event.pull_request.head.sha }}") { throw "Wrong source head" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot resolve tree" }
+          New-Item -ItemType Directory -Force "owner package/media" | Out-Null
+          @($head, $tree) | Set-Content -Encoding ascii "owner package/SOURCE.txt"
+      - name: Build and generate actual media
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o "owner package/replay.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o "owner package/runtime-test.exe" -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o "owner package/Ecophon.exe" -pthread -lwinmm -lgdi32 -luser32 -static
+          cp core.hpp runtime.hpp replay.cpp runtime_test.cpp windows.cpp README.md M2.md WINDOWS.md "owner package/"
+          g++ --version > "owner package/TOOLCHAIN.txt"
+          objdump -p "owner package/Ecophon.exe" | grep 'DLL Name:' > "owner package/IMPORTS.txt"
+          if grep -Ei 'DLL Name: (libgcc|libstdc\+\+|libwinpthread)' "owner package/IMPORTS.txt"; then exit 1; fi
+          "owner package/replay.exe" "owner package/media"
+          "owner package/runtime-test.exe"
+          (cd "owner package" && sha256sum *.exe *.hpp *.cpp *.md SOURCE.txt TOOLCHAIN.txt IMPORTS.txt media/* > SHA256SUMS.txt)
+      - name: Extract, verify, replay and execute graphical candidate
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "owner package/*" -DestinationPath Ecophon.zip
+          Expand-Archive Ecophon.zip -DestinationPath "extracted audition"
+          $root = (Resolve-Path "extracted audition").Path
+          foreach ($line in Get-Content "$root/SHA256SUMS.txt") {
+            if ($line -notmatch '^([0-9a-fA-F]{64}) [ *](.+)$') { throw "Malformed manifest: $line" }
+            $hash = $Matches[1]
+            $file = Join-Path $root $Matches[2]
+            if ((Get-FileHash $file).Hash -ne $hash) { throw "Checksum mismatch: $file" }
+          }
+          & "$root/replay.exe" "$root/regenerated media"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$root/runtime-test.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($f in Get-ChildItem "$root/media" -File) {
+            if ((Get-FileHash (Join-Path "$root/regenerated media" $f.Name)).Hash -ne (Get-FileHash $f.FullName).Hash) { throw "Replay mismatch: $($f.Name)" }
+          }
+          $proc = Start-Process -FilePath "$root/Ecophon.exe" -ArgumentList '--smoke' -PassThru
+          if (-not $proc.WaitForExit(20000)) { $proc.Kill(); throw "Graphical replay timeout" }
+          if ($proc.ExitCode -ne 0) { throw "Graphical replay failed: $($proc.ExitCode)" }
+          Get-FileHash Ecophon.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecophon-windows
+          path: instruments/fm1-ports/ecophon/Ecophon.zip
+          if-no-files-found: error
