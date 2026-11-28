@@ -91,7 +91,8 @@
     "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair.",
     "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow.",
     "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending.",
-    "Checkpoint 007: accept exactly GNU text and binary markers in Chronomorph extracted SHA256SUMS parser. Exercise two positive and five negative format fixtures in the same PowerShell step; retain path, duplicate, hash and completeness gates. JS-equivalent regex fixtures passed; actual PowerShell execution pending Windows CI."
+    "Checkpoint 007: accept exactly GNU text and binary markers in Chronomorph extracted SHA256SUMS parser. Exercise two positive and five negative format fixtures in the same PowerShell step; retain path, duplicate, hash and completeness gates. JS-equivalent regex fixtures passed; actual PowerShell execution pending Windows CI.",
+    "Intermediate workflow-generation commit 110814fb truncated PowerShell text because JS String.replace interpreted regex anchor followed by quote as a replacement token; no Chronomorph jobs executed in failed workflow 46130598134. Corrected using literal callback replacement with exact roundtrip and stored-blob readback; no changes to runtime or qualification gates."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",

@@ -84,73 +84,7 @@ jobs:
           $root = (Resolve-Path "extracted audition").Path
           $manifest = Join-Path $root "SHA256SUMS.txt"
           # GNU sha256sum uses a space or '*' as its text/binary mode marker.
-          $entryPattern = '^([0-9a-fA-F]{64}) [ *](.+)
-            $hash = $Matches[1]; $rel = $Matches[2]
-            if ($rel -notmatch '^(media/)?[A-Za-z0-9_.-]+$' -or $rel -match '(^|/)[.][.]?$') { throw "Unsafe checksum path: $rel" }
-            if ($seen.ContainsKey($rel)) { throw "Duplicate checksum path: $rel" }
-            $seen[$rel] = $true
-            $path = Join-Path $root $rel
-            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $hash) { throw "Payload mismatch: $rel" }
-          }
-          $payload = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { $_.FullName -ne $manifest })
-          if ($payload.Count -ne $seen.Count -or $seen.Count -eq 0) { throw "Incomplete checksum coverage" }
-          foreach ($f in $payload) {
-            $rel = $f.FullName.Substring($root.Length + 1).Replace([char]92, [char]47)
-            if (-not $seen.ContainsKey($rel)) { throw "Unlisted payload: $rel" }
-          }
-          New-Item -ItemType Directory -Force "extracted audition/regenerated media" | Out-Null
-          & "./extracted audition/replay.exe" "extracted audition/regenerated media"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "./extracted audition/runtime-test.exe"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "./extracted audition/gate-test.exe"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($f in Get-ChildItem "extracted audition/media" -File) {
-            $actual = Get-FileHash (Join-Path "extracted audition/regenerated media" $f.Name)
-            if ($actual.Hash -ne (Get-FileHash $f.FullName).Hash) { throw "Replay mismatch: $($f.Name)" }
-          }
-          & "./extracted audition/Chronomorph.exe" --smoke
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-FileHash Chronomorph.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chronomorph-windows
-          path: instruments/fm1-ports/chronomorph/Chronomorph.zip
-  target:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: instruments/fm1-ports/chronomorph
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Compile and link exact CYD source
-        run: |
-          set -euo pipefail
-          export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/pio-chronomorph"
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          mkdir -p target-receipts
-          git rev-parse HEAD HEAD^{tree} > target-receipts/source.txt
-          python -m pip install platformio==6.1.18 intelhex==2.3.0
-          python -c 'import intelhex'
-          pio run -e cyd-port-chrono 2>&1 | tee target-receipts/build.log
-          pio pkg list > target-receipts/packages.txt
-          find .pio/libdeps -iname 'LICENSE*' -o -iname 'COPYING*' > target-receipts/notice-paths.txt
-          cp .pio/build/cyd-port-chrono/firmware.map target-receipts/
-          test -s target-receipts/firmware.map
-          sha256sum .pio/build/cyd-port-chrono/firmware.elf > target-receipts/elf.sha256
-          (cd target-receipts && sha256sum source.txt build.log packages.txt notice-paths.txt firmware.map elf.sha256 > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: chronomorph-target-receipts-no-firmware
-          path: instruments/fm1-ports/chronomorph/target-receipts/
-          if-no-files-found: error
-
+          $entryPattern = '^([0-9a-fA-F]{64}) [ *](.+)$'
           # Exercise the exact parser expression before trusting archive contents.
           $fixtureHash = 'a' * 64
           foreach ($marker in @(' ', '*')) {
