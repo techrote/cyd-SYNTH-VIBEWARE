@@ -26,6 +26,22 @@ static void replay(){
      check(light_rx.accept(l.data(),l.size(),0)&&heavy_rx.accept(h.data(),h.size(),0),"variant admission");checks+=3;}
 #if defined(CLUSTER_SPATIAL_REACTION) && CLUSTER_SPATIAL_REACTION
     auto previous=a.pixels();unsigned changes=0;uint32_t witness=2166136261u;
+    // Every partial slice must preserve the previous published snapshot and wire sequence.
+    {sf::ReactionField whole,sliced;uint32_t hash=2166136261u;
+     for(unsigned i=1;i<=1000;++i){
+        const auto old=sliced.pixels();
+        check(!sliced.slice(),"idle slice");check(whole.advance()&&sliced.begin(),"start slice");
+        check(!sliced.begin()&&!sliced.advance(),"double start");
+        for(unsigned j=1;j<sf::ReactionField::slices_per_tick;++j){
+            check(!sliced.slice(),"early publication");
+            check(sliced.busy()&&sliced.sequence()==i-1&&sliced.pixels()==old,"partial publication");
+            check(sliced.bounded(),"partial bounds");checks+=3;
+        }
+        check(sliced.slice()&&!sliced.busy()&&sliced.sequence()==i&&sliced.pixels()==whole.pixels(),"slice completion");
+        if(i<=512)hash=sf::checksum(sliced.pixels().data(),sliced.pixels().size(),hash);
+        checks+=4;
+     }
+     check(hash==1979313773u,"sliced trajectory fixture");++checks;}
 #endif
     for(uint32_t i=1;i<=1000;++i){
         check(a.advance()&&b.advance()&&a.pixels()==b.pixels(),"determinism");++checks;

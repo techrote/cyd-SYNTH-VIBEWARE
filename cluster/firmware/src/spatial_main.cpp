@@ -23,6 +23,10 @@ uint32_t last_step=0,tx=0,accepted=0,rejected=0,tx_fail=0,compute_max=0,io_max=0
 uint32_t remote_ticks=0,local_ticks=0;
 // Single-loop cumulative telemetry; no reporting in the timed work itself.
 uint64_t compute_sum=0,io_sum=0,encode_sum=0,steps_done=0,steps_deferred=0,io_calls=0;
+#if CLUSTER_SPATIAL_REACTION
+uint64_t slice_calls=0,tick_compute_us=0;
+uint32_t slice_max=0,tick_compute_max=0;
+#endif
 char line[197]{};std::size_t used=0;bool overflow=false;
 lan::Address address(IPAddress ip){return {ip[0],ip[1],ip[2],ip[3]};}
 #if CLUSTER_SPATIAL_PANEL
@@ -98,16 +102,38 @@ void network_tick(){
     io_sum+=elapsed;++io_calls;
 }
 void tick_field(uint32_t now){
-    if(uint32_t(now-last_step)<50)return;
-    last_step=now;
+    const bool due=uint32_t(now-last_step)>=50;
 #if CLUSTER_SPATIAL_PANEL
-    if(enabled&&online&&!contact&&rx.fresh(now)){++steps_deferred;return;} // actually defer local compute
+    if(enabled&&online&&!contact&&rx.fresh(now)){
+        if(due){last_step=now;++steps_deferred;}
+        return; // pause even an unfinished reaction tick; published image stays coherent
+    }
 #endif
+#if CLUSTER_SPATIAL_REACTION
+    if(!local.busy()&&!due)return;
+    const auto before=esp_timer_get_time();
+    if(!local.busy()){
+        last_step=now;
+        if(!local.begin()){enabled=false;return;}
+        tick_compute_us=0;
+    }
+    const bool complete=local.slice();
+    const uint32_t elapsed=uint32_t(esp_timer_get_time()-before);
+    compute_sum+=elapsed;tick_compute_us+=elapsed;++slice_calls;
+    slice_max=std::max(slice_max,elapsed);
+    if(!complete)return;
+    tick_compute_max=std::max(tick_compute_max,uint32_t(tick_compute_us));
+    compute_max=tick_compute_max;
+#else
+    if(!due)return;
+    last_step=now;
     const auto before=esp_timer_get_time();
     if(!local.advance()){enabled=false;return;}
     const uint32_t elapsed=uint32_t(esp_timer_get_time()-before);
     if(elapsed>compute_max)compute_max=elapsed;
-    compute_sum+=elapsed;++steps_done;
+    compute_sum+=elapsed;
+#endif
+    ++steps_done;
 #if !CLUSTER_SPATIAL_PANEL
     if(online&&configured&&enabled){
         const auto encode_start=esp_timer_get_time();
@@ -135,6 +161,12 @@ void status(){
 #endif
 }
 void meter(){
+#if CLUSTER_SPATIAL_REACTION
+    Serial.printf("SPATIAL_SLICE_V1 calls=%llu max_us=%lu tick_compute_max_us=%lu pending=%u pending_compute_us=%llu\n",
+        static_cast<unsigned long long>(slice_calls),static_cast<unsigned long>(slice_max),
+        static_cast<unsigned long>(tick_compute_max),unsigned(local.busy()),
+        static_cast<unsigned long long>(local.busy()?tick_compute_us:0));
+#endif
     Serial.printf("SPATIAL_METER_V1 uptime_us=%llu compute_us=%llu steps=%llu deferred=%llu io_us=%llu io_calls=%llu encode_us=%llu tx=%lu rx=%lu rejected=%lu heap=%u min_heap=%u largest=%u online=%u enabled=%u\n",
         static_cast<unsigned long long>(esp_timer_get_time()),
         static_cast<unsigned long long>(compute_sum),static_cast<unsigned long long>(steps_done),
