@@ -19,6 +19,27 @@ jobs:
       - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
       - run: cmake --build build/cluster --config Release
       - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
+      - if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir cluster-gallery-linux
+          build/cluster/cluster_checkpoint --gallery cluster-gallery-linux/reaction-gallery
+          build/cluster/cluster_checkpoint --gallery 'linux reaction replay'
+          diff -r cluster-gallery-linux/reaction-gallery 'linux reaction replay'
+          test "$(find cluster-gallery-linux/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 7
+          printf '%s\n' "$PR_HEAD_SHA" > cluster-gallery-linux/source-pr-head.txt
+          git rev-parse HEAD > cluster-gallery-linux/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > cluster-gallery-linux/source-tree.txt
+          (cd cluster-gallery-linux && sha256sum reaction-gallery/* > gallery.sha256)
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-reaction-gallery-linux
+          path: cluster-gallery-linux/
+          if-no-files-found: error
       - if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -187,6 +208,32 @@ jobs:
             cluster-native-windows.zip
             cluster-native-windows.sha256
           if-no-files-found: error
+  reaction-gallery-cross-platform:
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-reaction-gallery-linux
+          path: linux-gallery
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-native-windows
+          path: windows-package
+      - shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q windows-package/cluster-native-windows.zip -d windows-gallery
+          for receipt in source-pr-head.txt source-commit.txt source-tree.txt; do
+            test -s "linux-gallery/$receipt"
+            test -s "windows-gallery/$receipt"
+            diff "linux-gallery/$receipt" <(tr -d '\r' < "windows-gallery/$receipt")
+          done
+          (cd linux-gallery && sha256sum -c gallery.sha256)
+          test "$(find linux-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 7
+          test "$(find windows-gallery/reaction-gallery -maxdepth 1 -type f | wc -l)" -eq 7
+          diff -r linux-gallery/reaction-gallery windows-gallery/reaction-gallery
+          echo 'PASS exact Linux/Windows reaction gallery (six WAVs and metrics CSV)'
   sanitizers:
     runs-on: ubuntu-latest
     steps:

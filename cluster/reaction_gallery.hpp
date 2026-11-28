@@ -29,11 +29,11 @@ inline void le32(std::ostream& out,uint32_t v){
 inline void wav(const std::filesystem::path& file,const std::vector<int16_t>& pcm,Check check){
     std::ofstream out(file,std::ios::binary);
     check(bool(out),"gallery WAV open");
-    const auto bytes=uint32_t(pcm.size()*2);
-    out.write("RIFF",4);le32(out,36u+bytes);out.write("WAVEfmt ",8);
+    const auto pcm_bytes=uint32_t(pcm.size()*2);
+    out.write("RIFF",4);le32(out,36u+pcm_bytes);out.write("WAVEfmt ",8);
     le32(out,16);le16(out,1);le16(out,1);le32(out,sound::rate);
     le32(out,sound::rate*2);le16(out,2);le16(out,16);
-    out.write("data",4);le32(out,bytes);
+    out.write("data",4);le32(out,pcm_bytes);
     for(const auto sample:pcm)le16(out,uint16_t(sample));
     out.close();check(bool(out),"gallery WAV write");
 }

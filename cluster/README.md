@@ -341,3 +341,15 @@ gallery and re-generates it after extraction, comparing all seven file hashes.
 The package records both the PR head and actual checkout commit/tree (the
 latter may be a GitHub PR merge commit). Platform DAC P11 remains HOLD;
 no embedded audio backend adopted.
+
+## M22: portable gallery delivery repair
+
+M21's Windows compile failed at `reaction_gallery.hpp` because the local WAV
+payload length named `bytes` shadows an enclosing declaration (MSVC C4459,
+with C2220 under /WX). The local identifier is now `pcm_bytes`; no arithmetic,
+DSP, packet or firmware change. The native workflow also exports the six
+actual-core WAVs and metrics CSV from Linux as a separate audition artifact,
+checks byte-identical Linux regeneration, and compares all seven files against
+the extracted Windows package on the same source commit/tree and PR head.
+No tolerance or warning suppression. This is an offline deterministic audio
+witness, not device playback, listening acceptance or physical network evidence.
