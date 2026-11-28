@@ -7,10 +7,13 @@ pin = "0139740e3db44496a779d6629b424397f9f53dfb"
 assert subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() == pin
 base = root / "instruments/phasespace"
 def blob(path):
-    data = path.read_bytes()
+    # Git Windows worktrees may use CRLF; compare canonical LF source blobs.
+    data = path.read_bytes().replace(b"\r\n", b"\n")
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 assert blob(base / "core.hpp") == "50b8bb909b0c54480bf6a1180d830083ba4cbdaa"
 assert blob(base / "firmware/src/main.cpp") == "becd2a5871a93ecf94c469b49a6c311bf748f956"
+assert blob(base / "windows.cpp") == "0a9ba2efa645971a50af0a318defec9634a89dd3"
+assert blob(base / "replay.cpp") == "9a854bb0822449f905f7b247ec872daa3466db63"
 here = Path(__file__).resolve().parent
 shutil.copyfile(here / "strip.hpp", base / "strip.hpp")
 shutil.copyfile(here / "strip_test.cpp", base / "strip_test.cpp")

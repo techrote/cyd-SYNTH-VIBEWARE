@@ -1,0 +1,34 @@
+Local native GCC 14.2.0 -O2, Linux host Intel Xeon Platinum 8573C, steady_clock, 400 frames per repetition, five repetitions per workload/variant; no affinity or concurrent-load control. Original stdout (microseconds/frame, unsigned cumulative witness).
+work=0 rows=1 rep=0 us/frame=236.62 witness=396368484
+work=0 rows=4 rep=0 us/frame=158.25 witness=792736968
+work=0 rows=8 rep=0 us/frame=148.10 witness=1189105452
+work=0 rows=1 rep=1 us/frame=248.84 witness=1585473936
+work=0 rows=4 rep=1 us/frame=341.13 witness=1981842420
+work=0 rows=8 rep=1 us/frame=162.70 witness=2378210904
+work=0 rows=1 rep=2 us/frame=232.03 witness=2774579388
+work=0 rows=4 rep=2 us/frame=157.51 witness=3170947872
+work=0 rows=8 rep=2 us/frame=139.89 witness=3567316356
+work=0 rows=1 rep=3 us/frame=233.83 witness=3963684840
+work=0 rows=4 rep=3 us/frame=155.30 witness=65086028
+work=0 rows=8 rep=3 us/frame=144.84 witness=461454512
+work=0 rows=1 rep=4 us/frame=239.69 witness=857822996
+work=0 rows=4 rep=4 us/frame=160.35 witness=1254191480
+work=0 rows=8 rep=4 us/frame=136.40 witness=1650559964
+work=1 rows=1 rep=0 us/frame=251.84 witness=363827587
+work=1 rows=4 rep=0 us/frame=170.20 witness=727655174
+work=1 rows=8 rep=0 us/frame=140.18 witness=1091482761
+work=1 rows=1 rep=1 us/frame=253.98 witness=1455310348
+work=1 rows=4 rep=1 us/frame=160.91 witness=1819137935
+work=1 rows=8 rep=1 us/frame=134.24 witness=2182965522
+work=1 rows=1 rep=2 us/frame=241.91 witness=2546793109
+work=1 rows=4 rep=2 us/frame=169.86 witness=2910620696
+work=1 rows=8 rep=2 us/frame=145.45 witness=3274448283
+work=1 rows=1 rep=3 us/frame=245.28 witness=3638275870
+work=1 rows=4 rep=3 us/frame=166.05 witness=4002103457
+work=1 rows=8 rep=3 us/frame=137.99 witness=70963748
+work=1 rows=1 rep=4 us/frame=242.53 witness=434791335
+work=1 rows=4 rep=4 us/frame=165.49 witness=798618922
+work=1 rows=8 rep=4 us/frame=141.92 witness=1162446509
+PASS pixels=27340800 trace_bytes=520 baseline_bytes=520 scratch4=2560 scratch8=5120
+Clang 17.0.0 ASan/UBSan -O1 -g:
+PASS pixels=27340800 trace_bytes=520 baseline_bytes=520 scratch4=2560 scratch8=5120
