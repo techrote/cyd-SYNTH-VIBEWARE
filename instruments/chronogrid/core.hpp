@@ -111,7 +111,7 @@ inline void row(const Control& c,uint32_t playhead,unsigned y,uint16_t* dst){
    if(b==3&&x%64>=30&&x%64<=34&&y>=208&&y<=232)v=0xffff;
    if(b==4&&y>=210&&y<=230&&(x%64==22+y-210||x%64==42-(y-210)))v=0xffff;
   }
-  if(y>=7&&y<17){unsigned s=x*6/320;unsigned left=(s*320+319)/6+20;if(x>=left&&x<left+6&&digit(s+1,(x-left)/2,(y-7)/2))v=0xffff;}
+  if(y>=7&&y<17){unsigned s=x*6/320;unsigned left=(s*320+5)/6+20;if(x>=left&&x<left+6&&digit(s+1,(x-left)/2,(y-7)/2))v=0xffff;}
   if(y>=231&&y<236&&x>=176&&x<187){unsigned i=(x-176)/4;unsigned n=i==0?c.bpm/100:i==1?(c.bpm/10)%10:c.bpm%10;if(digit(n,(x-176)%4,y-231))v=0xffff;}
   dst[x]=v;
  }

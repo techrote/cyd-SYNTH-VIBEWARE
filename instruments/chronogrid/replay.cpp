@@ -27,5 +27,6 @@ int main(int argc,char** argv){std::string dir=argc>1?argv[1]:"";std::array<std:
  Engine reset;Control r;r.play=true;r.seq=1;std::array<int16_t,block> first{},again{};reset.render(r,first.data(),block);for(unsigned i=0;i<100;++i){++r.seq;reset.render(r,again.data(),block);}++r.epoch;++r.seq;reset.render(r,again.data(),block);req(first==again,"deterministic reset");
  Engine drift;Control d;d.play=true;d.masks.fill(65535);for(unsigned i=0;i<300;++i){d.bpm=i<123?73:161;++d.seq;drift.render(d,again.data(),block);}for(unsigned t=0;t<tracks;++t){uint64_t ticks=uint64_t(block)*(123*73+177*161)*divisions[t]/denom;req(drift.events()[t]==ticks+1&&drift.steps()[t]==ticks%lengths[t],"tempo phase continuity");}
  std::array<uint16_t,width+2> line{};line.front()=0x1234;line.back()=0xabcd;for(unsigned y=0;y<=height;++y){row(c,0x12345,y,line.data()+1);req(line.front()==0x1234&&line.back()==0xabcd,"row bounds");}
+ std::array<unsigned,6> labels{};for(unsigned y=0;y<24;++y){row(c,0,y,line.data()+1);for(unsigned x=0;x<width;++x)if(line[x+1]==0xffff)++labels[x*6/320];}for(unsigned n:labels)req(n>=12,"visible scene digit");
  std::printf("PASS %u checks; Engine=%zu Surface=%zu Exchange=%zu bytes\n",checks,sizeof(Engine),sizeof(Surface),sizeof(Exchange));
 }
