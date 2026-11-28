@@ -1,0 +1,65 @@
+name: QA batch 006 independent Grid and Chronomorph
+on:
+  pull_request:
+    paths:
+      - 'qualification/replay006.py'
+      - '.github/workflows/qa-batch-006.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          ref: c0a866a71ecf0a6be958a04f9870b92d0a7fe069
+          path: grid-source
+      - uses: actions/checkout@v4
+        with:
+          ref: a42f33ecd37628fc6db64f0f0ffafc333f82af6d
+          path: chrono-source
+      - name: Independently verify and run Grid archive
+        run: python qualification/replay006.py grid grid-source 'independent Grid replay'
+      - name: Independently verify and run Chronomorph archive
+        run: python qualification/replay006.py chrono chrono-source 'independent Chronomorph replay'
+      - name: Clean Grid native and graphical build
+        run: |
+          cmake -S grid-source/instruments/chronogrid -B 'clean grid build' -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build 'clean grid build' --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir 'clean grid build' -C Release --output-on-failure -V
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory 'clean grid media' | Out-Null
+          & './clean grid build/Release/chronogrid_replay.exe' 'clean grid media'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python qualification/replay006.py compare 'independent Grid replay/extracted package/media' 'clean grid media'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Clean Chronomorph native and graphical build
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd chrono-source/instruments/fm1-ports/chronomorph
+          mkdir -p 'clean media'
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay.exe -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime-test.exe -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_gate_test.cpp -o gate-test.exe -static
+          g++ -std=c++17 -O2 windows.cpp -o Chronomorph.exe -pthread -lwinmm -lgdi32 -luser32 -static
+          ./replay.exe 'clean media'
+          ./runtime-test.exe
+          ./gate-test.exe
+          ./Chronomorph.exe --smoke
+      - name: Compare clean Chronomorph PCM and frames
+        run: python qualification/replay006.py compare 'independent Chronomorph replay/extracted package/media' 'chrono-source/instruments/fm1-ports/chronomorph/clean media'
