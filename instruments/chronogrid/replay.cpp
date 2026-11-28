@@ -43,5 +43,19 @@ int main(int argc,char** argv){std::string dir=argc>1?argv[1]:"";std::array<std:
  row(emph,0,40,line.data()+1);req(std::count(line.begin()+1,line.end()-1,0xffe0)>50,"visible accent markers");
  if(!dir.empty()){wav(dir+"/accent-off.wav",pa);wav(dir+"/accent-on.wav",aa);ppm(dir+"/accent-grid.ppm",emph,0);}
  std::printf("Accent comparison peak=%d/%d changed=%u/%zu\n",ppeak,apeak,changed,pa.size());
+ // Independent live subdivisions retain fractional phase and do not restart voices.
+ Surface ratio;ratio.touch(true,35,53);ratio.touch(true,35,53);ratio.touch(false,0,0);req(ratio.c.divs[0]==5&&ratio.c.accentEdit==0&&ratio.c.masks==Control{}.masks,"ratio single-contact edge");
+ for(unsigned v:{6u,8u,2u,3u,4u}){ratio.touch(true,35,53);ratio.touch(false,0,0);req(ratio.c.divs[0]==v,"ratio cycle");}
+ ratio.c.divs={8,2,6,3};ex.publish(ratio.c);req(ex.read(c)&&c.divs==ratio.c.divs,"ratio exchange");ratio.c.divs[2]=99;ex.publish(ratio.c);req(ex.read(c)&&c.divs[2]==4,"invalid ratio normalized");
+ ratio.touch(true,100,10);ratio.touch(false,0,0);req(ratio.c.divs==divisions,"scene restores default ratios");
+ Engine live,liveSplit,fixed;Control l;l.play=true;l.bpm=137;l.masks.fill(65535);Control f=l;std::array<uint64_t,tracks> integral{};std::vector<int16_t> lp,fp;unsigned ratioChanged=0;
+ for(unsigned i=0;i<1500;++i){++l.seq;f.seq=l.seq;if(i==313)l.divs={8,2,6,3};if(i==771){l.divs={3,5,2,8};l.bpm=89;f.bpm=89;}if(i==1113)l.divs=divisions;
+  live.render(l,ab.data(),block);liveSplit.render(l,sb.data(),31);liveSplit.render(l,sb.data()+31,block-31);fixed.render(f,pb.data(),block);req(ab==sb,"live ratio partition");
+  for(unsigned t=0;t<tracks;++t){integral[t]+=uint64_t(block)*l.bpm*l.divs[t];auto ticks=integral[t]/denom;req(live.events()[t]==ticks+1&&live.steps()[t]==ticks%lengths[t],"live ratio phase integral");}
+  for(unsigned j=0;j<block;++j){ratioChanged+=ab[j]!=pb[j];req(std::abs(int(ab[j]))<=12000,"live ratio headroom");}lp.insert(lp.end(),ab.begin(),ab.end());fp.insert(fp.end(),pb.begin(),pb.end());}
+ req(ratioChanged>1000,"ratio audio causality");req(live.events()!=fixed.events(),"ratio event causality");
+ l.divs={8,2,6,3};for(unsigned t=0;t<tracks;++t){unsigned white=0;for(unsigned y=51+44*t;y<61+44*t;++y){row(l,0,y,line.data()+1);for(unsigned x=30;x<36;++x)white+=line[x+1]==0xffff;}req(white>=12,"visible ratio digit");}
+ if(!dir.empty()){wav(dir+"/ratio-fixed.wav",fp);wav(dir+"/ratio-live.wav",lp);ppm(dir+"/ratio-grid.ppm",l,0);}
+ std::printf("Ratio comparison changed=%u/%zu events=%llu,%llu,%llu,%llu fixed=%llu,%llu,%llu,%llu\n",ratioChanged,lp.size(),(unsigned long long)live.events()[0],(unsigned long long)live.events()[1],(unsigned long long)live.events()[2],(unsigned long long)live.events()[3],(unsigned long long)fixed.events()[0],(unsigned long long)fixed.events()[1],(unsigned long long)fixed.events()[2],(unsigned long long)fixed.events()[3]);
  std::printf("PASS %u checks; Engine=%zu Surface=%zu Exchange=%zu bytes\n",checks,sizeof(Engine),sizeof(Surface),sizeof(Exchange));
 }
