@@ -147,6 +147,58 @@ int main(int argc,char** argv){
         require(std::all_of(performance.end()-3072,performance.end(),[](int16_t v){return v==0;}),"performance panic tail");
         wav(dir+"/gesture-tempo-direction.wav",performance);
     }
+    // Topology gesture preserves ordinary M tap and never starts a field note.
+    Surface mode;mode.touch(true,240,230);mode.touch(false,240,230);
+    require(mode.c.alt&&mode.c.topology==0,"M tap toggles alternate");
+    for(unsigned i=0;i<3;++i){
+        const int x[]={280,40,160};mode.touch(true,240,230);mode.touch(true,x[i],70);
+        require(mode.c.topology==i&&!mode.c.gate&&mode.c.alt,"M drag selects topology without gate or alt change");
+        mode.touch(false,x[i],70);require(mode.c.alt,"M drag release preserves alt");
+        for(unsigned j=0;j<130;++j){mode.heartbeat();auto d=Control::decode(mode.c.pack());
+            require(d.topology==i&&d.seq==(mode.c.seq&63u),"topology and heartbeat wrap");}
+    }
+    mode.touch(true,240,230);mode.cancel();mode.touch(false,0,0);
+    require(mode.c.alt&&mode.c.panic,"cancelled M tap cannot toggle");
+    require(Control::decode(0xc0000000u).topology==0,"reserved topology fallback");
+    // Matched musical gesture and split replay for each causal topology.
+    std::array<uint64_t,3> topologyHashes{};
+    for(unsigned k=0;k<3;++k){
+        Engine a,b;Control c;c.preset=5;c.topology=k;Points pp;Trace tt;
+        std::vector<int16_t> pcm;std::array<int16_t,block> x{},z{};
+        for(unsigned i=0;i<800;++i){
+            c.gate=i<760;c.x=40+(i/100)*32;c.y=20+(i%100)/2;++c.seq;
+            a.render(c.pack(),x.data(),block,&pp);b.render(c.pack(),z.data(),31);b.render(c.pack(),z.data()+31,block-31);
+            require(x==z,"topology partition exact");
+            for(auto sample:x)require(sample>=-7800&&sample<=7800,"topology headroom");
+            pcm.insert(pcm.end(),x.begin(),x.end());tt.drain(pp);
+            if(!dir.empty()&&i==350)ppm(dir+"/topology-"+std::to_string(k)+".ppm",tt,c);
+        }
+        require(std::all_of(pcm.end()-512,pcm.end(),[](int16_t v){return v==0;}),"topology release");
+        topologyHashes[k]=hash(pcm);for(unsigned j=0;j<k;++j)require(topologyHashes[k]!=topologyHashes[j],"distinct topology PCM");
+        if(!dir.empty())wav(dir+"/topology-"+std::to_string(k)+".wav",pcm);
+    }
+    // Independent and A->B arms must have identical A trajectories; B must respond.
+    Engine independent,directed;Control ci,cd;ci.gate=cd.gate=true;ci.preset=cd.preset=5;
+    ci.topology=1;cd.topology=2;Points pi,pd;std::array<int16_t,block> witness{};
+    unsigned changedB=0;
+    for(unsigned i=0;i<200;++i){
+        ci.x=cd.x=230;ci.y=cd.y=12;++ci.seq;++cd.seq;
+        independent.render(ci.pack(),witness.data(),block,&pi);
+        directed.render(cd.pack(),witness.data(),block,&pd);
+        Point u,v;for(unsigned j=0;j<block/8;++j){
+            require(pi.pop(u)&&pd.pop(v),"causal point witness count");
+            require(u.x==v.x,"directed B cannot influence A");changedB+=u.y!=v.y;
+        }
+    }
+    require(changedB>1600,"directed B responds to A");
+    // Change topology during sustained sound; no reset, gate loss or unsafe peak.
+    Engine live;Control ctl;ctl.gate=true;ctl.preset=5;std::array<int16_t,block> samples{};
+    for(unsigned i=0;i<500;++i){ctl.topology=(i/50)%3;ctl.x=250;ctl.y=5;++ctl.seq;
+        live.render(ctl.pack(),samples.data(),block);
+        require(std::any_of(samples.begin(),samples.end(),[](int16_t v){return v!=0;}),"topology transition sustains sound");
+        for(auto v:samples)require(v>=-7800&&v<=7800,"live transition headroom");}
+    ctl.panic=true;live.render(ctl.pack(),samples.data(),block);
+    require(std::all_of(samples.begin(),samples.end(),[](int16_t v){return v==0;}),"topology panic");
     Points q;for(unsigned i=0;i<256;++i)require(q.push({uint16_t(i),0}),"queue capacity");
     require(!q.push({0,0}),"queue full drop");Point p;
     for(unsigned i=0;i<256;++i)require(q.pop(p)&&p.x==i,"FIFO");
