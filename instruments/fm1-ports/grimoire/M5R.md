@@ -1,0 +1,18 @@
+# Grimoire M5R — deliver the exact audio producer regression to Windows owners
+
+Draft/HOLD; PORT #13 / #23. Parent 9382d8beea9dc259cb148c68f1c2899a857e18d1, tree e248443322cd51a9a4f09aa898acf73563154922. No changes to DSP, audio producer, panel, target or PLATFORM code. M5 author run [46175653625](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46175653625): Linux, Windows, digital-only ESP32 3/3 PASS. Downloaded outer Windows artifact 15275273179 SHA256 ea366546af17140530c8b75075894ccac72373ce22f0e92240eeb60c99db8544; inner ZIP c1513d518dabb0b731e88f25aec5287ee8f461ff58896f41060ce5c3ecd68861; all 26 manifest entries verified in a spaced path; SOURCE.txt matches exact parent and tree. Package contains original playable graphical application and five executables, but no M5 producer fixture, source, pinned sink or M5 receipt. Thus M5 Windows author PASS does not establish Windows execution of the new producer.
+
+Extend existing Windows job, not the number of jobs. Export P14 from exact commit b7ad6410eca359603195634059cb2e9b2cabc4ec via git archive in PowerShell (no text redirection or CRLF conversion), verify raw blob 0cc9887b6325cf79b414d5ef026c4c20946bfbf8, stage dependency and pin receipt; build static audio-owner-test.exe from unchanged instrument-local sources, record its imports, include all new payloads in manifest, execute from freshly extracted spaced path before original actual GUI smoke. Linux and target job bodies byte-identical to M5. Existing Windows gates retained. Same-repository original code only; no external source/media reuse or firmware redistribution.
+
+## Executed local evidence
+Recovered M5 Windows archive, verified digests and all 26 manifest entries. Rebuilt actual packaged replay, panel, strip and touch fixtures using g++ -std=c++17 -O2 -Wall -Wextra -Werror; replay 576000 exact partition samples and 6/6 WAV/PPM byte-identical; panel 27648000 pixels and 6656 PCM; strip 79695360 pixels; touch PASS. Recovered exact audio_owner.hpp and audio_owner_test.cpp (raw Git blobs 455be2e868691e731a992892fd330cc77a2afa0a and 3e9e746608d3301f0e3b76998a5580a317f55da7); P14 header from PLATFORM P15 artifact with matching raw Git blob. From spaced extracted directory:
+```sh
+g++ -std=c++17 -O2 -Wall -Wextra -Werror audio_owner_test.cpp -o ../audio-owner-test
+../audio-owner-test
+clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all audio_owner_test.cpp -o ../audio-owner-san
+../audio-owner-san
+```
+Both PASS: 309632 ordered exact DAC codes, 269991 nonneutral, 2770 neutral checks, 60 actual rendered panels. Git archive export of exact header via local fixture repository and raw blob verification also PASS in a spaced path. PowerShell, Windows compilation and actual extracted executable replay of M5R NOT RUN locally; hosted required. No physical or independent claim.
+
+## Target coordination
+PLATFORM P15 [run 46180187174](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46180187174), artifact 15277505882 SHA256 6bd4c6f47076cc0010a54bb3923ce97665917b631841bdff41a933215a975649 verified. Combined exact M5/PLATFORM compile/link PASS (35004 B static RAM, 346717 B flash); job FAIL because callback.txt lacks requested function label. Full IRAM disassembly has p15_sample_tick at 40081184, size 0xb1, no direct calls in that range; sink at 3ffc0a68 .dram0.data. Repaired inspection and transitive IRQ/literal/ownership review remain PLATFORM-owned; notified #2. No adoption until qualified. No new target output enabled. Physical HOLD; no flash, merge, virtual-target, independent or analog performance claim. Next: close Windows M5R exact-head CI and coordinate qualified target adapter.
