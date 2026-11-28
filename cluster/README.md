@@ -151,3 +151,33 @@ Independent 32x24 8-bit persistent advection/diffusion field; 788-byte self-cont
 Build with existing CMake. Run cluster_spatial with no args for deterministic tests; run spatial_udp_test.py with the executable path for separate-process clean and injected blackout/duplicate/reorder experiments. Manually use receive 42000 42001 clean field.ppm, then send 42001 42000 clean unused.ppm in a second process within the receiver's finite test window. No audio changes or shared platform dependencies.
 
 M9b target profiles: cyd-spatial (visual only), s3-spatial-worker, c3-spatial-worker. Same pinned framework as earlier LAN profiles. Serial setup as LAN diagnostic but port 42002; provision both endpoints with same fresh epoch and explicit peer IP, use remote to enable, local to stop, status for counters and measured maxima, reconnect for manual reassociation. Worker advances persistent field every 50 ms; sends latest full snapshot with no ACK. CYD renders 8 rows per slice, local field compute suspended during fresh remote operation, resumes from its own frozen state on expiry or touch override (not a phase-continuous state handoff). Hold touchscreen to select local field. Partial remote frame can be abandoned when local override begins; next complete frame replaces it. 20 Hz offered snapshot rate = 15,760 application bytes/s before network overhead; not observed goodput. No audio in this separate experiment; all earlier audio profiles unchanged. Endpoint + epoch and checksum are not authentication. No Internet or untrusted network. Reboot both before changing epoch. Target compile and physical tests separately gated, no flash authorization.
+
+## M10 — matched spatial kernel and delivery repair
+Run `cluster_spatial_bench.exe` (or native `cluster_spatial_bench`) to time 512 identical
+local and worker field steps, worker encoding, receiver validation/copy, and 256
+full 320x240 RGB565 rasters per arm. Every snapshot and every pixel must match;
+render ordering alternates. Timings are steady-clock host nanoseconds, not
+socket or target measurements. No delay or radio is included. The native CI
+build, sanitizers and extracted evaluator run this benchmark; the Windows
+package requests static MSVC CRT, refuses external MSVC runtime imports,
+records PE dependencies/source commit/tree and verifies extracted file hashes.
+Python is still needed for automated multi-process replay.
+
+For physical **visual-only** comparison, on the existing spatial profiles use
+serial `meter` before and after each steady capture window (e.g. 30 seconds,
+three repetitions). Reboot between radio-off and radio-on arms; run radio-off
+standalone, radio-on local, fresh remote from S3, fresh remote from C3, and an
+intentional outage/rejoin. Do not change configuration or touch during a steady
+window; test touch override separately. Record both endpoint serial logs,
+board/clock/source/artifact and wall interval. Subtract cumulative 64-bit
+compute/IO/encode/render counters between samples; divide by elapsed
+`uptime_us` for measured loop duty fractions. `steps` counts executed local
+field advances, `deferred` counts skipped local steps while remote is fresh,
+`io_calls` includes empty socket polls, and frame counters count completed
+(not merely started) LCD frames. Accepted payload bytes = RX delta × 788.
+Report aborted frames separately if needed from existing status counters.
+Heap/minimum/largest are snapshots or lifetime minima, not interval minima.
+The `meter` output itself incurs serial overhead at boundaries. These windows
+compare actual work rates, not identical states; use the native matched
+benchmark to verify exact algorithm/render equivalence. No audio or one-way
+source-age measurement in this visual profile; no physical results claimed.

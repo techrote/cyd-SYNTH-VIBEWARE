@@ -21,6 +21,8 @@ sf::Field local;
 bool joined=false,online=false,configured=false,enabled=false;
 uint32_t last_step=0,tx=0,accepted=0,rejected=0,tx_fail=0,compute_max=0,io_max=0;
 uint32_t remote_ticks=0,local_ticks=0;
+// Single-loop cumulative telemetry; no reporting in the timed work itself.
+uint64_t compute_sum=0,io_sum=0,encode_sum=0,steps_done=0,steps_deferred=0,io_calls=0;
 char line[197]{};std::size_t used=0;bool overflow=false;
 lan::Address address(IPAddress ip){return {ip[0],ip[1],ip[2],ip[3]};}
 #if CLUSTER_SPATIAL_PANEL
@@ -29,6 +31,7 @@ SPIClass touch_bus(VSPI);
 XPT2046_Touchscreen touch(33);
 bool panel=false,contact=false,frame_remote=false;
 uint32_t last_touch=0,last_frame=0,frames=0,render_max=0;
+uint64_t render_sum=0,render_calls=0,completed_local=0,completed_remote=0;
 unsigned row_y=240;
 sf::Pixels snapshot{};
 std::array<uint16_t,320> rgb{};
@@ -64,9 +67,11 @@ void render(uint32_t now){
     if(row_y==240){
         screen.fillRect(0,224,320,16,uint16_t(0));screen.setTextColor(uint16_t(0xffff));
         screen.setTextSize(1);screen.drawString(frame_remote?"REMOTE FIELD":"LOCAL FIELD",3,227);++frames;
+        if(frame_remote)++completed_remote;else ++completed_local;
     }
     screen.endWrite();
-    render_max=std::max(render_max,uint32_t(esp_timer_get_time()-before));
+    const auto elapsed=uint32_t(esp_timer_get_time()-before);
+    render_max=std::max(render_max,elapsed);render_sum+=elapsed;++render_calls;
 }
 #endif
 void network_tick(){
@@ -90,26 +95,31 @@ void network_tick(){
     }
     const uint32_t elapsed=uint32_t(esp_timer_get_time()-before);
     if(elapsed>io_max)io_max=elapsed;
+    io_sum+=elapsed;++io_calls;
 }
 void tick_field(uint32_t now){
     if(uint32_t(now-last_step)<50)return;
     last_step=now;
 #if CLUSTER_SPATIAL_PANEL
-    if(enabled&&online&&!contact&&rx.fresh(now))return; // actually defer local compute
+    if(enabled&&online&&!contact&&rx.fresh(now)){++steps_deferred;return;} // actually defer local compute
 #endif
     const auto before=esp_timer_get_time();
     if(!local.advance()){enabled=false;return;}
     const uint32_t elapsed=uint32_t(esp_timer_get_time()-before);
     if(elapsed>compute_max)compute_max=elapsed;
+    compute_sum+=elapsed;++steps_done;
 #if !CLUSTER_SPATIAL_PANEL
     if(online&&configured&&enabled){
+        const auto encode_start=esp_timer_get_time();
         const auto p=sf::encode(peer.epoch,local);
+        encode_sum+=uint64_t(esp_timer_get_time()-encode_start);
         IPAddress ip(peer.address[0],peer.address[1],peer.address[2],peer.address[3]);
         const auto t=esp_timer_get_time();
         bool ok=false;
         if(udp.beginPacket(ip,port)){const auto n=udp.write(p.data(),p.size());ok=udp.endPacket()==1&&n==p.size();}
         if(ok)++tx;else ++tx_fail;
         const uint32_t io=uint32_t(esp_timer_get_time()-t);if(io>io_max)io_max=io;
+        io_sum+=io;++io_calls;
     }
 #endif
 }
@@ -122,6 +132,20 @@ void status(){
 #if CLUSTER_SPATIAL_PANEL
     Serial.printf("panel=%u frames=%lu remote_frames_started=%lu local_frames_started=%lu render_max_us=%lu\n",unsigned(panel),
         static_cast<unsigned long>(frames),static_cast<unsigned long>(remote_ticks),static_cast<unsigned long>(local_ticks),static_cast<unsigned long>(render_max));
+#endif
+}
+void meter(){
+    Serial.printf("SPATIAL_METER_V1 uptime_us=%llu compute_us=%llu steps=%llu deferred=%llu io_us=%llu io_calls=%llu encode_us=%llu tx=%lu rx=%lu rejected=%lu heap=%u min_heap=%u largest=%u online=%u enabled=%u\n",
+        static_cast<unsigned long long>(esp_timer_get_time()),
+        static_cast<unsigned long long>(compute_sum),static_cast<unsigned long long>(steps_done),
+        static_cast<unsigned long long>(steps_deferred),static_cast<unsigned long long>(io_sum),
+        static_cast<unsigned long long>(io_calls),static_cast<unsigned long long>(encode_sum),
+        static_cast<unsigned long>(tx),static_cast<unsigned long>(accepted),static_cast<unsigned long>(rejected),
+        unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()),unsigned(ESP.getMaxAllocHeap()),unsigned(online),unsigned(enabled));
+#if CLUSTER_SPATIAL_PANEL
+    Serial.printf("SPATIAL_PANEL_V1 render_us=%llu render_calls=%llu local_frames=%llu remote_frames=%llu contact=%u\n",
+        static_cast<unsigned long long>(render_sum),static_cast<unsigned long long>(render_calls),
+        static_cast<unsigned long long>(completed_local),static_cast<unsigned long long>(completed_remote),unsigned(contact));
 #endif
 }
 void command(const char* s,std::size_t n){
@@ -141,6 +165,7 @@ void command(const char* s,std::size_t n){
         return;
     }
     if(!std::strcmp(s,"status")){status();return;}
+    if(!std::strcmp(s,"meter")){meter();return;}
     if(!std::strcmp(s,"local")){enabled=false;rx.disconnect();return;}
     if(!std::strcmp(s,"remote")){enabled=configured;return;}
     if(!std::strcmp(s,"reconnect")&&joined&&!online){WiFi.reconnect();return;}
@@ -165,7 +190,7 @@ void setup(){
     panel_begin();
 #endif
     Serial.println("Spatial visual-only; radio off; isolated trusted WPA2 LAN, port 42002");
-    Serial.println("join <ssidhex> <pskhex>; peer <IPv4> <epoch8>; remote/local/status/reconnect");
+    Serial.println("join <ssidhex> <pskhex>; peer <IPv4> <epoch8>; remote/local/status/meter/reconnect");
 }
 void loop(){
     serial_poll();network_tick();const auto now=millis();
