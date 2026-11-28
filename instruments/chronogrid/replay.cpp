@@ -1,0 +1,80 @@
+#include "core.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <vector>
+using namespace gridseq;
+static unsigned checks=0;
+static void req(bool b,const char* s){++checks;if(!b){std::fprintf(stderr,"FAIL %s\n",s);std::exit(1);}}
+static void le(std::ofstream& f,uint32_t v,unsigned n){while(n--){f.put(char(v&255u));v>>=8;}}
+static void wav(const std::string& path,const std::vector<int16_t>& s){std::ofstream f(path,std::ios::binary);f.write("RIFF",4);le(f,36+uint32_t(s.size()*2),4);f.write("WAVEfmt ",8);le(f,16,4);le(f,1,2);le(f,1,2);le(f,rate,4);le(f,rate*2,4);le(f,2,2);le(f,16,2);f.write("data",4);le(f,uint32_t(s.size()*2),4);for(auto v:s)le(f,uint16_t(v),2);req(bool(f),"wav");}
+static void ppm(const std::string& path,const Control& c,uint32_t head){std::ofstream f(path,std::ios::binary);f<<"P6\n320 240\n255\n";std::array<uint16_t,width> line{};for(unsigned y=0;y<height;++y){row(c,head,y,line.data());for(auto v:line){f.put(char((v>>11)*255/31));f.put(char(((v>>5)&63)*255/63));f.put(char((v&31)*255/31));}}req(bool(f),"ppm");}
+static std::vector<int16_t> scene(unsigned s,bool split,const std::string& dir){Engine e;Control c;c.scene=s;c.bpm=scenes[s].bpm;c.masks=scenes[s].masks;c.play=true;std::atomic<uint32_t> head{0};std::vector<int16_t> a;std::array<int16_t,block> p{};int peak=0;
+ for(unsigned b=0;b<1500;++b){++c.seq;if(b==1200)c.bpm=std::min(180u,c.bpm+16);if(b==1350)c.mute=5;if(b==1460)c.play=false;
+  if(split){e.render(c,p.data(),31,&head);e.render(c,p.data()+31,block-31,&head);}else e.render(c,p.data(),block,&head);
+  for(int v:p){req(v>=-8000&&v<=8000,"gain");peak=std::max(peak,std::abs(v));a.push_back(int16_t(v));}if(b==600&&!dir.empty())ppm(dir+"/scene-"+std::to_string(s+1)+".ppm",c,head.load());}
+ req(peak>100,"audible scene");req(std::all_of(a.end()-512,a.end(),[](auto v){return !v;}),"stop silence");if(!dir.empty())wav(dir+"/scene-"+std::to_string(s+1)+".wav",a);
+ if(!split)std::printf("%s peak=%d events=%llu,%llu,%llu,%llu\n",scenes[s].name,peak,(unsigned long long)e.events()[0],(unsigned long long)e.events()[1],(unsigned long long)e.events()[2],(unsigned long long)e.events()[3]);
+ return a;
+}
+int main(int argc,char** argv){std::string dir=argc>1?argv[1]:"";std::array<std::vector<int16_t>,6> a;
+ for(unsigned s=0;s<6;++s){a[s]=scene(s,false,dir);req(a[s]==scene(s,true,""),"partition exact");for(unsigned j=0;j<s;++j)req(a[j]!=a[s],"distinct scenes");}
+ Surface u;u.touch(true,48,25);u.touch(true,319,25);u.touch(false,0,0);req(u.c.masks[0]==0,"erase sweep");u.touch(true,48,25);u.touch(true,319,25);u.touch(false,0,0);req(u.c.masks[0]==65535,"paint sweep");u.touch(true,10,30);u.touch(true,10,30);req(u.c.mute==1,"mute edge");u.touch(false,0,0);u.touch(true,10,220);req(u.c.play,"transport");u.cancel();u.touch(true,10,220);req(!u.c.play,"held cancel");u.touch(false,0,0);u.touch(true,10,220);req(u.c.play,"fresh transport");
+ Exchange ex;Control c;ex.publish(u.c);req(ex.read(c)&&c.masks==u.c.masks&&c.play==u.c.play&&c.mute==u.c.mute,"coherent roundtrip");
+ for(unsigned bpm:{50u,137u,180u}){Engine e;c=Control{};c.masks.fill(65535);c.bpm=bpm;c.play=true;std::array<int16_t,block> p{};constexpr unsigned n=24000*60;for(unsigned i=0;i<n;i+=block){++c.seq;e.render(c,p.data(),std::min(block,n-i));}for(unsigned t=0;t<tracks;++t){unsigned ticks=bpm*divisions[t];req(e.events()[t]==ticks+1,"minute exact events");req(e.steps()[t]==ticks%lengths[t],"minute exact phase");}}
+ Engine e;c=Control{};c.play=true;c.masks.fill(65535);++c.seq;std::array<int16_t,8192> pcm{};e.render(c,pcm.data(),pcm.size());req(std::all_of(pcm.end()-512,pcm.end(),[](auto v){return !v;}),"lease silence");++c.seq;e.render(c,pcm.data(),block);req(std::all_of(pcm.begin(),pcm.begin()+block,[](auto v){return !v;}),"lease no implicit resume");c.play=false;e.render(c,pcm.data(),block);c.play=true;++c.epoch;++c.seq;e.render(c,pcm.data(),block);req(std::any_of(pcm.begin(),pcm.begin()+block,[](auto v){return v!=0;}),"explicit restart");c.mute=15;++c.seq;e.render(c,pcm.data(),block);req(std::all_of(pcm.begin(),pcm.begin()+block,[](auto v){return !v;}),"all mute");
+ Engine reset;Control r;r.play=true;r.seq=1;std::array<int16_t,block> first{},again{};reset.render(r,first.data(),block);for(unsigned i=0;i<100;++i){++r.seq;reset.render(r,again.data(),block);}++r.epoch;++r.seq;reset.render(r,again.data(),block);req(first==again,"deterministic reset");
+ Engine drift;Control d;d.play=true;d.masks.fill(65535);for(unsigned i=0;i<300;++i){d.bpm=i<123?73:161;++d.seq;drift.render(d,again.data(),block);}for(unsigned t=0;t<tracks;++t){uint64_t ticks=uint64_t(block)*(123*73+177*161)*divisions[t]/denom;req(drift.events()[t]==ticks+1&&drift.steps()[t]==ticks%lengths[t],"tempo phase continuity");}
+ std::array<uint16_t,width+2> line{};line.front()=0x1234;line.back()=0xabcd;for(unsigned y=0;y<=height;++y){row(c,0x12345,y,line.data()+1);req(line.front()==0x1234&&line.back()==0xabcd,"row bounds");}
+ std::array<unsigned,6> labels{};for(unsigned y=0;y<24;++y){row(c,0,y,line.data()+1);for(unsigned x=0;x<width;++x)if(line[x+1]==0xffff)++labels[x*6/320];}for(unsigned n:labels)req(n>=12,"visible scene digit");
+ // Accent editing is orthogonal to note enable and clock timing.
+ Surface edit;auto original=edit.c.masks;edit.touch(true,35,25);edit.touch(false,0,0);req(edit.c.accentEdit==1&&edit.c.mute==0,"accent mode");
+ edit.touch(true,48,25);edit.touch(true,319,25);edit.touch(false,0,0);req(edit.c.accents[0]==65535&&edit.c.masks==original,"accent paint independent");
+ edit.touch(true,48,25);edit.touch(true,319,25);edit.touch(false,0,0);req(edit.c.accents[0]==0,"accent erase");
+ edit.c.accents={0x1111,0x222,0x155,0x49};ex.publish(edit.c);req(ex.read(c)&&c.accents==edit.c.accents&&c.accentEdit==1,"accent exchange");
+ edit.touch(true,100,10);edit.touch(false,0,0);req(edit.c.accents==Control{}.accents&&edit.c.accentEdit==0,"scene clears accents");
+ Engine plain,accent,splitAccent;Control base; base.play=true;base.masks={0xffff,0,0,0};Control emph=base;emph.accents[0]=0x1111;
+ std::vector<int16_t> pa,aa;std::array<int16_t,block> pb{},ab{},sb{};int ppeak=0,apeak=0;unsigned changed=0;
+ for(unsigned i=0;i<750;++i){++base.seq;emph.seq=base.seq;plain.render(base,pb.data(),block);accent.render(emph,ab.data(),block);splitAccent.render(emph,sb.data(),31);splitAccent.render(emph,sb.data()+31,block-31);req(ab==sb,"accent partition");
+  for(unsigned j=0;j<block;++j){ppeak=std::max(ppeak,std::abs(int(pb[j])));apeak=std::max(apeak,std::abs(int(ab[j])));changed+=pb[j]!=ab[j];}pa.insert(pa.end(),pb.begin(),pb.end());aa.insert(aa.end(),ab.begin(),ab.end());}
+ req(plain.events()==accent.events()&&plain.steps()==accent.steps(),"accent clock identity");req(apeak>ppeak&&changed>1000,"accent audio causality");
+ emph.accents.fill(65535);emph.masks.fill(65535);emph.bpm=180;for(unsigned i=0;i<1500;++i){++emph.seq;accent.render(emph,ab.data(),block);for(int v:ab)req(v>=-12000&&v<=12000,"accent stress headroom");}
+ row(emph,0,40,line.data()+1);req(std::count(line.begin()+1,line.end()-1,0xffe0)>50,"visible accent markers");
+ if(!dir.empty()){wav(dir+"/accent-off.wav",pa);wav(dir+"/accent-on.wav",aa);ppm(dir+"/accent-grid.ppm",emph,0);}
+ std::printf("Accent comparison peak=%d/%d changed=%u/%zu\n",ppeak,apeak,changed,pa.size());
+ // Independent live subdivisions retain fractional phase and do not restart voices.
+ Surface ratio;ratio.touch(true,35,53);ratio.touch(true,35,53);ratio.touch(false,0,0);req(ratio.c.divs[0]==5&&ratio.c.accentEdit==0&&ratio.c.masks==Control{}.masks,"ratio single-contact edge");
+ for(unsigned v:{6u,8u,2u,3u,4u}){ratio.touch(true,35,53);ratio.touch(false,0,0);req(ratio.c.divs[0]==v,"ratio cycle");}
+ ratio.c.divs={8,2,6,3};ex.publish(ratio.c);req(ex.read(c)&&c.divs==ratio.c.divs,"ratio exchange");ratio.c.divs[2]=99;ex.publish(ratio.c);req(ex.read(c)&&c.divs[2]==4,"invalid ratio normalized");
+ ratio.touch(true,100,10);ratio.touch(false,0,0);req(ratio.c.divs==divisions,"scene restores default ratios");
+ Engine live,liveSplit,fixed;Control l;l.play=true;l.bpm=137;l.masks.fill(65535);Control f=l;std::array<uint64_t,tracks> integral{};std::vector<int16_t> lp,fp;unsigned ratioChanged=0;
+ for(unsigned i=0;i<1500;++i){++l.seq;f.seq=l.seq;if(i==313)l.divs={8,2,6,3};if(i==771){l.divs={3,5,2,8};l.bpm=89;f.bpm=89;}if(i==1113)l.divs=divisions;
+  live.render(l,ab.data(),block);liveSplit.render(l,sb.data(),31);liveSplit.render(l,sb.data()+31,block-31);fixed.render(f,pb.data(),block);req(ab==sb,"live ratio partition");
+  for(unsigned t=0;t<tracks;++t){integral[t]+=uint64_t(block)*l.bpm*l.divs[t];auto ticks=integral[t]/denom;req(live.events()[t]==ticks+1&&live.steps()[t]==ticks%lengths[t],"live ratio phase integral");}
+  for(unsigned j=0;j<block;++j){ratioChanged+=ab[j]!=pb[j];req(std::abs(int(ab[j]))<=12000,"live ratio headroom");}lp.insert(lp.end(),ab.begin(),ab.end());fp.insert(fp.end(),pb.begin(),pb.end());}
+ req(ratioChanged>1000,"ratio audio causality");req(live.events()!=fixed.events(),"ratio event causality");
+ l.divs={8,2,6,3};for(unsigned t=0;t<tracks;++t){unsigned white=0;for(unsigned y=51+44*t;y<61+44*t;++y){row(l,0,y,line.data()+1);for(unsigned x=30;x<36;++x)white+=line[x+1]==0xffff;}req(white>=12,"visible ratio digit");}
+ if(!dir.empty()){wav(dir+"/ratio-fixed.wav",fp);wav(dir+"/ratio-live.wav",lp);ppm(dir+"/ratio-grid.ppm",l,0);}
+ std::printf("Ratio comparison changed=%u/%zu events=%llu,%llu,%llu,%llu fixed=%llu,%llu,%llu,%llu\n",ratioChanged,lp.size(),(unsigned long long)live.events()[0],(unsigned long long)live.events()[1],(unsigned long long)live.events()[2],(unsigned long long)live.events()[3],(unsigned long long)fixed.events()[0],(unsigned long long)fixed.events()[1],(unsigned long long)fixed.events()[2],(unsigned long long)fixed.events()[3]);
+ // Cross-track gates use prior tick outcomes, never lane iteration order.
+ Surface rules;rules.touch(true,10,53);rules.touch(true,10,53);rules.touch(false,0,0);req(rules.c.rules[0]==1&&rules.c.mute==0,"rule edge");
+ rules.touch(true,10,53);rules.touch(false,0,0);req(rules.c.rules[0]==2,"oppose mode");rules.touch(true,10,53);rules.touch(false,0,0);req(rules.c.rules[0]==0,"free mode");
+ rules.c.rules={1,2,0,99};ex.publish(rules.c);req(ex.read(c)&&c.rules==std::array<unsigned,tracks>{1,2,0,0},"rule exchange normalized");
+ rules.touch(true,100,10);rules.touch(false,0,0);req(rules.c.rules==Control{}.rules,"scene restores free rules");
+ Engine sync;Control z;z.play=true;z.seq=1;z.bpm=150;z.divs.fill(4);z.masks.fill(65535);z.rules.fill(2);sync.render(z,ab.data(),1);for(auto n:sync.events())req(n==1,"simultaneous oppose startup");
+ for(unsigned i=1;i<24000;++i){++z.seq;sync.render(z,ab.data(),1);}for(auto n:sync.events())req(n==6,"simultaneous oppose alternating");
+ ++z.epoch;++z.seq;sync.render(z,ab.data(),1);for(auto n:sync.events())req(n==7,"reset clears history");
+ Engine gated,gatedSplit,freeRun;Control g;g.play=true;g.bpm=120;g.masks={0x5555,0x0fff,0x03ff,0x007f};g.rules={0,1,2,1};Control ungated=g;ungated.rules.fill(0);
+ std::array<uint64_t,tracks> expected{};std::array<unsigned,tracks> phase{},step{};unsigned history=0;std::vector<int16_t> gp,up;unsigned gateChanged=0;
+ auto witness=[&](unsigned t,unsigned prior){unsigned bit=1u<<t;bool other=prior&(1u<<((t+tracks-1)%tracks));history&=~bit;if(!(g.mute&bit)&&(g.masks[t]&(1u<<step[t]))&&(g.rules[t]==0||(g.rules[t]==1&&other)||(g.rules[t]==2&&!other))){history|=bit;++expected[t];}};
+ for(unsigned t=0;t<tracks;++t)witness(t,0);
+ for(unsigned i=0;i<1500;++i){++g.seq;ungated.seq=g.seq;if(i==313)g.divs=ungated.divs={8,2,6,3};if(i==771){g.bpm=ungated.bpm=89;g.mute=ungated.mute=1;}if(i==1113){g.mute=ungated.mute=0;g.rules={2,0,1,2};}
+  gated.render(g,ab.data(),block);gatedSplit.render(g,sb.data(),31);gatedSplit.render(g,sb.data()+31,block-31);freeRun.render(ungated,pb.data(),block);req(ab==sb,"gate partition");
+  for(unsigned j=0;j<block;++j){unsigned prior=history;for(unsigned t=0;t<tracks;++t){phase[t]+=g.bpm*g.divs[t];if(phase[t]>=denom){phase[t]-=denom;step[t]=(step[t]+1)%lengths[t];witness(t,prior);}}gateChanged+=ab[j]!=pb[j];req(std::abs(int(ab[j]))<=12000,"gate headroom");}
+  req(gated.events()==expected&&gated.steps()==step&&gated.steps()==freeRun.steps(),"independent gate clock witness");gp.insert(gp.end(),ab.begin(),ab.end());up.insert(up.end(),pb.begin(),pb.end());}
+ req(gateChanged>1000&&gated.events()!=freeRun.events(),"gate causal audio");g.rules={0,1,2,0};for(unsigned t=0;t<tracks;++t){unsigned white=0;for(unsigned y=51+44*t;y<61+44*t;++y){row(g,0,y,line.data()+1);for(unsigned x=9;x<15;++x)white+=line[x+1]==0xffff;}req(white>=12,"visible rule digit");}
+ if(!dir.empty()){wav(dir+"/gate-free.wav",up);wav(dir+"/gate-coupled.wav",gp);ppm(dir+"/gate-grid.ppm",g,0);}
+ std::printf("Gate comparison changed=%u/%zu events=%llu,%llu,%llu,%llu free=%llu,%llu,%llu,%llu\n",gateChanged,gp.size(),(unsigned long long)gated.events()[0],(unsigned long long)gated.events()[1],(unsigned long long)gated.events()[2],(unsigned long long)gated.events()[3],(unsigned long long)freeRun.events()[0],(unsigned long long)freeRun.events()[1],(unsigned long long)freeRun.events()[2],(unsigned long long)freeRun.events()[3]);
+ std::printf("PASS %u checks; Engine=%zu Surface=%zu Exchange=%zu bytes\n",checks,sizeof(Engine),sizeof(Surface),sizeof(Exchange));
+}
