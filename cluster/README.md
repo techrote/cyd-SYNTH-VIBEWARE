@@ -372,3 +372,39 @@ radio or audio-device qualification.
 
 ## M24: local spectral colour
 T cycles four spectral colours (0–3) independently of palette and XY focus. Colour 0 is the original triangle; colour 3 is a convex mix of half fundamental triangle and quarter each phase-locked second/third partial. Intermediate colours interpolate; full morph slews over 384 samples (16 ms at 24 kHz), without phase reset or added packet bytes. Digital peak bound remains 24,192. Scene 08-local-spectral-colour cycles these colours on the same local field as scene 01; original seven tracks remain unchanged. Windows smoke cycles T, and the dedicated gallery gates compare eight WAVs plus metrics CSV. No hardware audio adoption or listening claim.
+
+## M25: offline checkpoint physical capture (existing M18 firmware)
+
+The existing M12 spatial capture tool cannot parse the distinct M18
+CHECKPOINT_METER_V1 / CHECKPOINT_PANEL_V1 / CHECKPOINT_WORKER_V1 telemetry.
+Use checkpoint_capture.py instead. No serial connection, installation, flash
+or credentials are handled by this tool. Physical operation requires separate
+owner authorization and board/recovery review.
+
+For each arm record exactly two complete meter groups from each participating
+endpoint, after configuration, with a steady interval between them (e.g. 30 s).
+Keep raw logs privately without provisioning secrets. Run radio-off and
+radio-local panel-only arms, then S3 and C3 independently; record an intentional
+worker stop/rejoin as a separate outage arm. Start/end the two serial windows
+as close together as practical and retain external event timestamps. No
+reboot, peer reconfiguration or counter reset inside a window. Repeat with
+fresh output paths. Use actual firmware binary SHA256, board revision and
+exact source/artifact receipts; placeholders below are not actual identities.
+
+    python checkpoint_capture.py --arm radio-off --panel off.log --panel-board "actual CYD" --panel-sha256 <actual-panel-digest> --out off.json
+    python checkpoint_capture.py --arm s3 --panel panel.log --panel-board "actual CYD" --panel-sha256 <actual-panel-digest> --worker worker.log --worker-board "actual S3" --worker-sha256 <actual-worker-digest> --out s3.json
+
+The JSON includes independent uptime windows, work/network/export/render
+fractions, lifetime maxima, heap and contiguous allocation snapshots,
+frame/tick cadence, accepted/sent packet counts, recovery and checkpoint
+counters, endpoint state and log hashes. The combined packet counter does
+not distinguish 788-byte projections from 1048-byte fragments; report only
+lower/upper application byte-rate bounds. Never subtract sender/receiver
+counts as a packet loss measurement: windows are not synchronized and
+admission rejection is not RF loss. Work time includes control overhead,
+and runtime maxima are lifetime maxima, not interval percentiles. A catch-up
+counter is not exact-state proof. Compare same-profile local and remote
+workload/cadence and retain matched native lattice tests separately.
+The outage label is not proof of disconnect/rejoin. No hardware measurements
+or audio claims are generated. The four synthetic unit tests run on both
+host platforms and the extracted Windows package.

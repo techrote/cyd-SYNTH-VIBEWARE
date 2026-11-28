@@ -19,6 +19,7 @@ jobs:
       - run: cmake -S cluster -B build/cluster -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
       - run: cmake --build build/cluster --config Release
       - run: ctest --test-dir build/cluster -C Release --output-on-failure -V
+      - run: python cluster/checkpoint_capture_test.py
       - if: runner.os == 'Linux'
         shell: bash
         env:
@@ -88,6 +89,8 @@ jobs:
           Copy-Item build/cluster/Release/cluster_checkpoint.exe $pkg
           Copy-Item build/cluster/Release/cluster_checkpoint_udp.exe $pkg
           Copy-Item cluster/checkpoint_udp_test.py $pkg
+          Copy-Item cluster/checkpoint_capture.py $pkg
+          Copy-Item cluster/checkpoint_capture_test.py $pkg
           & "$pkg/cluster_checkpoint.exe" --gallery "$pkg/reaction-gallery"
           if ($LASTEXITCODE -ne 0) { throw 'Reaction gallery generation failed' }
           Copy-Item cluster/README.md $pkg
@@ -177,6 +180,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted reaction UDP failed' }
           python './extracted cluster/spatial_capture_test.py'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted spatial capture failed' }
+          python './extracted cluster/checkpoint_capture_test.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted checkpoint capture failed' }
           & './extracted cluster/cluster_spatial_handoff.exe'
           if ($LASTEXITCODE -ne 0) { throw 'Extracted handoff replay failed' }
           & './extracted cluster/cluster_reaction_view.exe' --smoke
