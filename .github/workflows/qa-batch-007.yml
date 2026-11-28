@@ -1,10 +1,5 @@
 name: QA batch 007 independent Chronomorph and target refresh
 on:
-  pull_request:
-    paths:
-      - 'qualification/replay007.py'
-      - '.github/workflows/qa-batch-007.yml'
-      - 'qualification/panic_matrix.cpp'
   workflow_dispatch:
 permissions:
   contents: read

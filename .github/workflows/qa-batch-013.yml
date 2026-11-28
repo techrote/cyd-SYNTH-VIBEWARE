@@ -1,9 +1,5 @@
 name: QA batch 013 independent integrated Windows and board builds
 on:
-  pull_request:
-    paths:
-      - 'qualification/replay013.py'
-      - '.github/workflows/qa-batch-013.yml'
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,10 +1,5 @@
 name: QA batch 010 independent XENOBIO M4R
 on:
-  pull_request:
-    paths:
-      - 'qualification/replay010.py'
-      - 'qualification/qa_xenobio_drain.cpp'
-      - '.github/workflows/qa-batch-010.yml'
   workflow_dispatch:
 permissions:
   contents: read

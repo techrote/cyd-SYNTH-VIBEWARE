@@ -1,0 +1,154 @@
+name: QA batch 016 independent repaired Xeno and Ecophon M4
+on:
+  pull_request:
+    paths:
+      - 'qualification/replay016.py'
+      - '.github/workflows/qa-batch-016.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 767f7ce5f66fb742a9530b426fd9513c5eb67fdb
+          path: xeno-source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d353906d58b960fb987b18524d25dfe831078e60
+          path: ecophon-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact frozen checkouts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ((git -C xeno-source rev-parse HEAD) -ne '767f7ce5f66fb742a9530b426fd9513c5eb67fdb') {throw 'Xeno head'}
+          if ((git -C xeno-source rev-parse 'HEAD^{tree}') -ne '8771d94734efbd5af28f784a27c67ef498142a98') {throw 'Xeno tree'}
+          if ((git -C ecophon-source rev-parse HEAD) -ne 'd353906d58b960fb987b18524d25dfe831078e60') {throw 'Ecophon head'}
+          if ((git -C ecophon-source rev-parse 'HEAD^{tree}') -ne '7f104198c8e911cea0c0d77abbdf3adfb586b999') {throw 'Ecophon tree'}
+          if (git -C xeno-source status --porcelain) {throw 'Dirty Xeno source'}
+          if (git -C ecophon-source status --porcelain) {throw 'Dirty Ecophon source'}
+      - name: Recover and verify exact archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python qualification/replay016.py 'QA frozen packages' --recover
+      - name: Independently execute extracted Windows packages
+        run: python qualification/replay016.py 'QA frozen packages' --execute
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Rebuild and execute portable cores and actual GDI applications
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          g++ --version
+          (
+            cd xeno-source/instruments/fm1-ports/xenoresonator
+            mkdir 'clean media'
+            g++ -std=c++17 -O2 -Wall -Wextra replay.cpp -o replay.exe -static
+            g++ -std=c++17 -O2 windows.cpp -o instrument.exe -pthread -lwinmm -lgdi32 -luser32 -static
+            ./replay.exe 'clean media'
+            ./instrument.exe --smoke
+          )
+          (
+            cd ecophon-source/instruments/fm1-ports/ecophon
+            mkdir 'clean media'
+            for f in replay runtime_test recovery_test target_gate_test sample_sink_test; do
+              g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread "$f.cpp" -o "$f.exe" -static
+            done
+            g++ -std=c++17 -O2 -Wall -Wextra -Werror -I. ../../../../qualification/ecophon_sink014.cpp -o qa-sink.exe -static
+            g++ -std=c++17 -O2 -Wall -Wextra -Werror windows.cpp -o instrument.exe -pthread -lwinmm -lgdi32 -luser32 -static
+            ./replay.exe 'clean media'
+            ./runtime_test.exe
+            ./recovery_test.exe
+            ./target_gate_test.exe
+            ./sample_sink_test.exe
+            ./qa-sink.exe
+            ./instrument.exe --smoke
+          )
+      - name: Compare all freshly rebuilt media without tolerance
+        run: python qualification/replay016.py 'QA frozen packages' --compare 'xeno-source/instruments/fm1-ports/xenoresonator/clean media' 'ecophon-source/instruments/fm1-ports/ecophon/clean media'
+  independent-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 767f7ce5f66fb742a9530b426fd9513c5eb67fdb
+          path: xeno-source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d353906d58b960fb987b18524d25dfe831078e60
+          path: ecophon-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
+      - name: Independently rebuild three changed or unqualified target profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C xeno-source rev-parse HEAD)" = 767f7ce5f66fb742a9530b426fd9513c5eb67fdb
+          test "$(git -C xeno-source rev-parse 'HEAD^{tree}')" = 8771d94734efbd5af28f784a27c67ef498142a98
+          test "$(git -C ecophon-source rev-parse HEAD)" = d353906d58b960fb987b18524d25dfe831078e60
+          test "$(git -C ecophon-source rev-parse 'HEAD^{tree}')" = 7f104198c8e911cea0c0d77abbdf3adfb586b999
+          test -z "$(git -C xeno-source status --porcelain)"
+          test -z "$(git -C ecophon-source status --porcelain)"
+          mkdir qa-target-receipts
+          pio system info > qa-target-receipts/system.txt
+          python -m pip freeze > qa-target-receipts/python-packages.txt
+          build() {
+            local repo="$1" dir="$1/$2" env="$3" out="qa-target-receipts/$3"
+            mkdir "$out"
+            export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/qa016-pio-$env"
+            test ! -e "$PLATFORMIO_CORE_DIR"
+            git -C "$repo" rev-parse HEAD > "$out/source-commit.txt"
+            git -C "$repo" rev-parse 'HEAD^{tree}' > "$out/source-tree.txt"
+            cp "$dir/platformio.ini" "$out/platformio.ini"
+            pio run -d "$dir" -e "$env" 2>&1 | tee "$out/build.txt"
+            pio pkg list -d "$dir" -e "$env" > "$out/toolchain.txt"
+            local b="$dir/.pio/build/$env"
+            test -s "$b/firmware.map"
+            test -s "$b/firmware.elf"
+            cp "$b/firmware.map" "$out/firmware.map"
+            sha256sum "$b/firmware.elf" > "$out/elf-sha256.txt"
+            find "$dir/.pio/libdeps/$env" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > "$out/dependency-notice-hashes.txt"
+            (cd "$out" && sha256sum *.txt platformio.ini firmware.map > manifest.sha256 && sha256sum -c manifest.sha256)
+          }
+          failed=0
+          run_build() {
+            local env="$3" status
+            if bash -euo pipefail -c "$(declare -f build); build \"\$@\"" qa-build "$@"; then
+              status=PASS
+            else
+              status=FAIL
+              failed=1
+            fi
+            printf '%s\t%s\n' "$env" "$status" | tee -a qa-target-receipts/profile-status.tsv
+          }
+          run_build xeno-source instruments/fm1-ports/xenoresonator cyd-port-xeno
+          run_build ecophon-source instruments/fm1-ports/ecophon cyd-port-ecophon
+          run_build ecophon-source instruments/fm1-ports/ecophon cyd-port-ecophon-timer
+          exit "$failed"
+      - name: Preserve only non-installable receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-batch-016-target-receipts-no-firmware
+          path: qa-target-receipts/
+          if-no-files-found: warn

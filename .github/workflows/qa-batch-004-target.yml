@@ -1,8 +1,5 @@
 name: QA batch 004 independent target receipts
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/qa-batch-004-target.yml'
   workflow_dispatch:
 permissions:
   contents: read

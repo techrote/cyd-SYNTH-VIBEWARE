@@ -1,9 +1,5 @@
 name: QA batch 006 independent Grid and Chronomorph
 on:
-  pull_request:
-    paths:
-      - 'qualification/replay006.py'
-      - '.github/workflows/qa-batch-006.yml'
   workflow_dispatch:
 permissions:
   contents: read
