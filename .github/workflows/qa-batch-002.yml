@@ -1,0 +1,49 @@
+name: QA batch 002 independent desktop replay
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: phasespace-windows
+          run-id: 46102984182
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - uses: actions/download-artifact@v4
+        with:
+          name: port-xeno-windows
+          run-id: 46102984161
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-native-windows
+          run-id: 46104403890
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: 'pinned inner archives'
+      - name: Extract, verify exact files, regenerate media, run actual graphical and fault replays
+        run: python qualification/windows_replay002.py 'pinned inner archives' 'independent extracted batch 002'
+      - uses: actions/checkout@v4
+        with:
+          ref: e83a1edb686606c357f236e35488ba065b8865dc
+          path: hybrid-source
+      - name: Verify independent HYBRID source checkout
+        shell: pwsh
+        run: |
+          $head = (git -C hybrid-source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne 'e83a1edb686606c357f236e35488ba065b8865dc') { throw 'wrong source' }
+          $tree = (git -C hybrid-source rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $tree -ne '3b054e8bf8b853c922aaccdbe833d798cc6582ac') { throw 'wrong tree' }
+      - run: cmake -S hybrid-source/cluster -B 'independent hybrid build' -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - run: cmake --build 'independent hybrid build' --config Release
+      - run: ctest --test-dir 'independent hybrid build' -C Release --output-on-failure -V

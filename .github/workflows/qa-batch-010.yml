@@ -1,0 +1,96 @@
+name: QA batch 010 independent XENOBIO M4R
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 9a314395eac5bf577192bbdb3a58fb7cc628cf22
+          path: xeno-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact source and run recovered Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git -C xeno-source rev-parse HEAD) -ne '9a314395eac5bf577192bbdb3a58fb7cc628cf22') {throw 'Head mismatch'}
+          if ((git -C xeno-source rev-parse 'HEAD^{tree}') -ne '6098ecf645cb898cab3b157d5a3daa5a9ce383f9') {throw 'Tree mismatch'}
+          python -c "import subprocess; f=open('xeno-outer.zip','wb'); subprocess.run(['gh','api','repos/techrote/cyd-SYNTH-VIBEWARE/actions/artifacts/15260959010/zip'],stdout=f,check=True,timeout=120); f.close()"
+          if ($LASTEXITCODE -ne 0) {throw 'Artifact recovery failed'}
+          python qualification/replay010.py xeno-outer.zip --run 'QA extracted XENOBIO'
+          if ($LASTEXITCODE -ne 0) {throw 'Independent replay failed'}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Clean Windows build, core and GDI execution
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cd xeno-source/instruments/xenobio
+          mkdir 'clean media'
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay.exe -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread runtime_test.cpp -o runtime.exe -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror target_input_test.cpp -o gate.exe -static
+          g++ -std=c++17 -O2 windows.cpp -o Xenobio.exe -pthread -lwinmm -lgdi32 -luser32 -static
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I. ../../../qualification/qa_xenobio_drain.cpp -o qa-drain.exe -static
+          ./replay.exe 'clean media'
+          ./runtime.exe 'clean media/runtime.ppm'
+          ./gate.exe
+          ./qa-drain.exe
+          ./Xenobio.exe --smoke
+      - name: Compare clean Windows media
+        run: python qualification/replay010.py xeno-outer.zip --compare 'xeno-source/instruments/xenobio/clean media'
+  independent-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9a314395eac5bf577192bbdb3a58fb7cc628cf22
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
+      - name: Clean target rebuild and map-only custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 9a314395eac5bf577192bbdb3a58fb7cc628cf22
+          test "$(git rev-parse 'HEAD^{tree}')" = 6098ecf645cb898cab3b157d5a3daa5a9ce383f9
+          test -z "$(git status --porcelain)"
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror instruments/xenobio/target_input_test.cpp -o target-input-test
+          ./target-input-test
+          mkdir qa-target-receipts
+          export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/qa-xeno-pio"
+          test ! -e "$PLATFORMIO_CORE_DIR"
+          project=instruments/xenobio/firmware
+          pio system info > qa-target-receipts/system.txt
+          pio run -d "$project" -e cyd-xenobio 2>&1 | tee qa-target-receipts/build.txt
+          pio pkg list -d "$project" -e cyd-xenobio > qa-target-receipts/toolchain.txt
+          git rev-parse HEAD > qa-target-receipts/source-commit.txt
+          git rev-parse 'HEAD^{tree}' > qa-target-receipts/source-tree.txt
+          cp "$project/platformio.ini" qa-target-receipts/
+          cp "$project/.pio/build/cyd-xenobio/firmware.map" qa-target-receipts/
+          sha256sum "$project/.pio/build/cyd-xenobio/firmware.elf" > qa-target-receipts/elf-sha256.txt
+          find "$project/.pio/libdeps/cyd-xenobio" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > qa-target-receipts/dependency-notice-hashes.txt
+          (cd qa-target-receipts && sha256sum *.txt platformio.ini firmware.map > manifest.sha256 && sha256sum -c manifest.sha256)
+      - name: Preserve non-installable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-batch-010-target-receipts-no-firmware
+          path: qa-target-receipts/
+          if-no-files-found: warn

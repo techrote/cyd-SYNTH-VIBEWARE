@@ -1,0 +1,34 @@
+# QA batch 003 — independent batch 002 closure and four-instrument audition (2026-11-28)
+
+Draft/HOLD. Main bf08fb5a38a7fa692026af3bfb08943fb72506ef unchanged; no source-lane branch edits. Batch 001/002 artifacts and ledgers immutable.
+
+## Batch 002 closure
+[Independent Windows 46104942985](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46104942985) 1/1 PASS at exact QA 62fd6f15ff636151532a30abe8197336260a80cc: all three artifact downloads, exact extraction/regenerated media, graphical smoke and UDP/fault replay, exact M10 source checkout, clean CMake build and CTest all successful. Applies only to integrated M3/M3 and HYBRID M10 pins in batch 002, not new M4/M1. Smoke does not prove physical audio endpoint operation. No new claim of physical radio acceleration.
+
+## Batch 003
+#17 source 724d4d2251d9f190e1c412432594239ccd8325fd, synthetic checkout 61e8fe9fe42f1fe82cec8a7f137c6af80e7c894e (Git-data API parents main and exact #17; tree 3a283affa72cff41b00c8a2d6a1ccd72b2f5394f).
+#18 source/checkout 153e6bbd563242c9bc8bbeda47d1e40158877d41, tree 4127541750c6ea32150ee33bdac9369aa2a054f9. #16 P2 source 772a678a3963c6200a9afbcd59806618999dfa3c, checkout 376ff23b33f8a2e834ffeabb0b98446a59d15f6d, Git-data API parents main and #16; same tree fcc12193acef5a385618b330a86e805a9a864569, consumer 072ede0c2909836f90639d2112ea3786d770795d. All four artifact IDs nonexpired and outer/inner digest-verified.
+
+| Candidate | Author CI | Independent native source | Archive/PE | Independent Windows | Physical |
+|---|---|---|---|---|---|
+| #17 PHASESPACE M4 | [4/4 PASS](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108123157) | GCC/Clang ASan/UBSan 1303254 checks PASS | [15248387458](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108123157/artifacts/15248387458) PASS | NOT RUN at checkpoint | NOT RUN |
+| #17 Xenoresonator M4 | [3/3 PASS](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108123155) | GCC/Clang ASan/UBSan 2.56M stress + M4 contact/queue/panic regression PASS | [15248417526](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108123155/artifacts/15248417526) PASS | NOT RUN | NOT RUN |
+| #18 CHRONOGRID M1 | [4/4 PASS](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108951057) | GCC/Clang ASan/UBSan 2304344 checks PASS | [15248384121](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46108951057/artifacts/15248384121) PASS | NOT RUN | NOT RUN |
+| #16 accelerated PHASESPACE M4 P2 (optional, not in collection) | [3/3 PASS](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46106372662) | NOT RUN | [15247846558](https://github.com/techrote/cyd-SYNTH-VIBEWARE/actions/runs/46106372662/artifacts/15247846558) PASS | NOT RUN | NOT RUN |
+| #10 VECTORFIELD M10 retained byte-for-byte | 21/21 PASS (batch 002) | independent Windows CTest PASS | batch 002 original pin retained | PASS 46104942985 | NOT RUN |
+
+## Actual independent source execution
+Direct Git clone DNS failed; recovered files from M4 and CHRONOGRID original galleries and exact integrated Xeno Windows package. Xeno CRLF normalized for Git blob identity. All seven source blobs matched live Git trees before compilation:
+- PHASESPACE core/replay 6b254f4da1a876f1cbd73e08d557ba5c82f29f8f / 40ff5073b6407ccf2ba734bbb6b1a75fa5c41bb0.
+- Xeno core/exchange/replay 26eb7ae004f5c5fe69535a7b143848b9fb622305 / b69d81eedb2ba27ddae39d69b2cc4cb5e65e0258 / d8cd008123c59da674d92cbc0e72be877ae6156c.
+- CHRONOGRID core/replay 0d9ffc49bf208d5715aa3a3f8976fcc6509ad532 / 1ec3fb332cbec6b47186365e21a90260b3f4ebcc.
+
+In paths with spaces: g++ -std=c++17 -O2 -Wall -Wextra -Werror replay.cpp -o replay; mkdir gcc-media; ./replay gcc-media; clang++ -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer replay.cpp -o replay-san; mkdir clang-media; ./replay-san clang-media; diff -qr gcc-media clang-media. All six executables PASS. Local GCC/Clang media exact 23/23, 16/16, 12/12. Versus actual Windows archived media: PHASESPACE 11/23 exact, eleven WAVs max one PCM16 count, loop-normal.ppm differs by 39 bytes; Xeno 10/16 exact, six WAVs max one PCM16 count; CHRONOGRID **12/12 exact**, including all six WAVs and six frames. Do not reinterpret cross-platform inequality as exact or relax tolerances. P2 independent source/extracted test pending.
+
+## Package and target receipt audit
+New qualification/batch003.py independently checked four newly recovered outer and inner digests, zip paths/CRC/size, 25 Xeno + 18 CHRONOGRID per-file checksums, all 10 new PE executable imports (x64 system DLLs/UCRT only). Four extracted archives in paths with spaces matched every file; eight negative controls (altered digest and checkout per pin) refused; Linux replay correctly refused. Retained HYBRID inner ZIP exact SHA256 9cf94d9e342db625cccf1506c59ff1754da16921dfbc74f8ed5a66e8ea6d2a98, previous 16 PE audits and 33 receipts carried forward, not new scans. CHRONOGRID uses single-space checksum receipt format, accommodated explicitly after initial validator refusal. No firmware.
+Collection 003: 8050565 bytes, SHA256 ef7e0c34365bf2f808e369edb87c3d6404a91eae48a7a44fc8e21c6de1e26bb4; two assembly executions byte-identical. Use python qualification/batch003.py assemble DOWNLOADS COLLECTION002.zip OUTPUT.zip. P2 audit recorded separately (not duplicated in collection). Original batch 002 SHA256 cf975897c86f933e50880f66c866a6b8d59c0e3ba0477cfeeb744f9653b36538 required to retain exact HYBRID.
+
+Four map-only target artifacts independently recovered and matched API digests: PHASESPACE 15248272785 (5662b836bcde7e0931cb63009d7504feadd7b73f7ba28bab956dba30e3604cbb), Xeno 15248681054 (93925eb469ed85066156c56c507f2b8eacbc47f925865fc8b03dac999acf4709), CHRONOGRID 15248374284 (3d180828e8cd2f6783f19189201f202a8f53fef5e27e2ff1f4c0e3b1224a23e0), P2 15247018291 (ad919f2d2f274d1b5ad24018efa9924df832509bf00ac9ec78e3d516bade3da5). Each contains actual firmware.map with memory configuration and IRAM sections, toolchain metadata, no installable binaries. Phase/Grid/P2 espressif32 6.10.0, Xeno 7.1.3; all Xtensa 8.4.0 patch5, LovyanGFX 1.2.32 and XPT2046 v1.4 d57f64c. Xeno target archive lacks standalone source-commit receipt (API run association verified, not independent source binding); notice paths only, not full rights closure. Independent target compile/link NOT RUN for all. No physical claims.
+
+One new bounded Windows QA workflow submitted for pinned M4/M1/P2 extraction, actual media and graphical smoke, P2 pixel/topology tests plus clean exact-source PLATFORM rebuild and CTest. Preserve all previous pins; only claim pass on completed actual job. Next close workflow, hand off any concrete failure, independently compile target only when capacity permits. Rights, owner and physical gates HOLD.

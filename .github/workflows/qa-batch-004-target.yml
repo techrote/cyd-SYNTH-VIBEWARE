@@ -1,0 +1,85 @@
+name: QA batch 004 independent target receipts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 724d4d2251d9f190e1c412432594239ccd8325fd
+          path: integrated
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 153e6bbd563242c9bc8bbeda47d1e40158877d41
+          path: grid
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
+      - name: Verify clean source pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C integrated rev-parse HEAD)" = 724d4d2251d9f190e1c412432594239ccd8325fd
+          test "$(git -C integrated rev-parse 'HEAD^{tree}')" = 3a283affa72cff41b00c8a2d6a1ccd72b2f5394f
+          test "$(git -C grid rev-parse HEAD)" = 153e6bbd563242c9bc8bbeda47d1e40158877d41
+          test "$(git -C grid rev-parse 'HEAD^{tree}')" = 4127541750c6ea32150ee33bdac9369aa2a054f9
+          test -z "$(git -C integrated status --porcelain)"
+          test -z "$(git -C grid status --porcelain)"
+      - name: Independently compile and link frozen standalone profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir qa-target-receipts
+          pio system info > qa-target-receipts/system.txt
+          python -c 'import intelhex; from importlib.metadata import version; assert version("intelhex") == "2.3.0"; print(version("intelhex"))' > qa-target-receipts/intelhex-version.txt
+          build() {
+            local repo="$1" project="$2" env="$3"
+            local dir="$repo/$project" out="qa-target-receipts/$env"
+            mkdir "$out"
+            export PLATFORMIO_CORE_DIR="$RUNNER_TEMP/qa-pio-$env"
+            test ! -e "$PLATFORMIO_CORE_DIR"
+            printf '%s\n' "$PLATFORMIO_CORE_DIR" > "$out/core-dir.txt"
+            git -C "$repo" rev-parse HEAD > "$out/source-commit.txt"
+            git -C "$repo" rev-parse 'HEAD^{tree}' > "$out/source-tree.txt"
+            cp "$dir/platformio.ini" "$out/platformio.ini"
+            pio run -d "$dir" -e "$env" 2>&1 | tee "$out/build.txt"
+            pio pkg list -d "$dir" -e "$env" > "$out/toolchain.txt"
+            local builddir="$dir/.pio/build/$env"
+            test -s "$builddir/firmware.map"
+            test -s "$builddir/firmware.elf"
+            cp "$builddir/firmware.map" "$out/firmware.map"
+            sha256sum "$builddir/firmware.elf" > "$out/elf-sha256.txt"
+            find "$dir/.pio/libdeps/$env" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print0 | sort -z | xargs -0 -r sha256sum > "$out/dependency-notice-hashes.txt"
+            (cd "$out" && sha256sum *.txt platformio.ini firmware.map > manifest.sha256 && sha256sum -c manifest.sha256)
+            echo "PASS target compile/link $env (not physical execution)"
+          }
+          failed=0
+          run_build() {
+            local env="$3" status
+            # A fresh shell preserves errexit inside build even when the caller handles failure.
+            if bash -euo pipefail -c "$(declare -f build); build \"\$@\"" qa-build "$@"; then
+              status=PASS
+            else
+              status=FAIL
+              failed=1
+            fi
+            printf '%s\t%s\n' "$env" "$status" | tee -a qa-target-receipts/profile-status.tsv
+          }
+          run_build integrated instruments/phasespace/firmware cyd-phasespace
+          run_build integrated instruments/fm1-ports/xenoresonator cyd-port-xeno
+          run_build grid instruments/chronogrid/firmware cyd-chronogrid
+          exit "$failed"
+      - name: Preserve only non-installable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-batch-004-target-receipts-no-firmware
+          path: qa-target-receipts/
+          if-no-files-found: warn

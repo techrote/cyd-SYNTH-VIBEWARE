@@ -1,0 +1,10 @@
+# QA batch 013 — exact integrated Windows / target execution
+Date: 2026-11-28. Draft/HOLD. #7 / #15. Independent of integration #17.
+
+Frozen candidate 319664f449f2c4e77ced3ff80f5a743e4ad36b59, tree 5a4b413929afe0f420e80f7c2e71c42f1136ebce. Newer integration 24121300eb34cc868966f66b567b1f0d2b12731c is not substituted. Batch011 original audition package remains unchanged. Batch012 independent native three-instrument evidence and Xenoresonator cross-environment 330 one-code mismatches remain intact (strict byte identity FAIL). No new acceptance, no physical access, no firmware.
+
+Local command: python qualification/replay013.py CYD-VIBEWARE-Owner-Audition-011.zip. Actual PASS five pinned inner archives: 29 PHASESPACE, 27 CHRONOGRID, 25 Xenoresonator, 22 Chronomorph, 36 XENOBIO manifest files (139 total). Exact head/tree receipts and executable inventories validated. Negative controls run under python -O: wrong instrument pin and one-bit mutation both refused. Tested script blob d7a9a3a5cbb7507c7625c61fb1e004cee3c34eb5. Windows artifacts checked live, all unexpired (2027-02-26), outer SHA256 agrees with batch011.
+
+New path-filtered QA workflow submits two independent jobs: recover pinned original Windows artifacts using GitHub API, validate outer/inner SHA256 and manifests, execute extracted replays and GDI smoke in spaces paths and compare real PCM/PPM byte identity; clean Windows MSVC/UCRT64 source build and native tests; separate clean PIO 6.1.18 / IntelHex 2.3.0 compile/link for five exact board profiles. Target job uses fresh per-profile tool state, map/ELF hashes, build and dependency receipts only; no installable output. Neither hosted job is claimed PASS at publication. Local Windows/PIO unavailable, git remote DNS failure. Actual physical audio/touch/clock/latency HOLD/BLOCKED, rights/redistribution not accepted. GDI smoke is not physical audio playback. Existing author 17/17 jobs remain author evidence only.
+
+Next: inspect actual per-profile results and logs, preserve failures and route fixes to the owning lane; then Ecophon M4 / HYBRID exact independent replay. No integration or main edits.
