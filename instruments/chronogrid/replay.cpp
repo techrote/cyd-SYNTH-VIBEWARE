@@ -28,5 +28,20 @@ int main(int argc,char** argv){std::string dir=argc>1?argv[1]:"";std::array<std:
  Engine drift;Control d;d.play=true;d.masks.fill(65535);for(unsigned i=0;i<300;++i){d.bpm=i<123?73:161;++d.seq;drift.render(d,again.data(),block);}for(unsigned t=0;t<tracks;++t){uint64_t ticks=uint64_t(block)*(123*73+177*161)*divisions[t]/denom;req(drift.events()[t]==ticks+1&&drift.steps()[t]==ticks%lengths[t],"tempo phase continuity");}
  std::array<uint16_t,width+2> line{};line.front()=0x1234;line.back()=0xabcd;for(unsigned y=0;y<=height;++y){row(c,0x12345,y,line.data()+1);req(line.front()==0x1234&&line.back()==0xabcd,"row bounds");}
  std::array<unsigned,6> labels{};for(unsigned y=0;y<24;++y){row(c,0,y,line.data()+1);for(unsigned x=0;x<width;++x)if(line[x+1]==0xffff)++labels[x*6/320];}for(unsigned n:labels)req(n>=12,"visible scene digit");
+ // Accent editing is orthogonal to note enable and clock timing.
+ Surface edit;auto original=edit.c.masks;edit.touch(true,35,25);edit.touch(false,0,0);req(edit.c.accentEdit==1&&edit.c.mute==0,"accent mode");
+ edit.touch(true,48,25);edit.touch(true,319,25);edit.touch(false,0,0);req(edit.c.accents[0]==65535&&edit.c.masks==original,"accent paint independent");
+ edit.touch(true,48,25);edit.touch(true,319,25);edit.touch(false,0,0);req(edit.c.accents[0]==0,"accent erase");
+ edit.c.accents={0x1111,0x222,0x155,0x49};ex.publish(edit.c);req(ex.read(c)&&c.accents==edit.c.accents&&c.accentEdit==1,"accent exchange");
+ edit.touch(true,100,10);edit.touch(false,0,0);req(edit.c.accents==Control{}.accents&&edit.c.accentEdit==0,"scene clears accents");
+ Engine plain,accent,splitAccent;Control base; base.play=true;base.masks={0xffff,0,0,0};Control emph=base;emph.accents[0]=0x1111;
+ std::vector<int16_t> pa,aa;std::array<int16_t,block> pb{},ab{},sb{};int ppeak=0,apeak=0;unsigned changed=0;
+ for(unsigned i=0;i<750;++i){++base.seq;emph.seq=base.seq;plain.render(base,pb.data(),block);accent.render(emph,ab.data(),block);splitAccent.render(emph,sb.data(),31);splitAccent.render(emph,sb.data()+31,block-31);req(ab==sb,"accent partition");
+  for(unsigned j=0;j<block;++j){ppeak=std::max(ppeak,std::abs(int(pb[j])));apeak=std::max(apeak,std::abs(int(ab[j])));changed+=pb[j]!=ab[j];}pa.insert(pa.end(),pb.begin(),pb.end());aa.insert(aa.end(),ab.begin(),ab.end());}
+ req(plain.events()==accent.events()&&plain.steps()==accent.steps(),"accent clock identity");req(apeak>ppeak&&changed>1000,"accent audio causality");
+ emph.accents.fill(65535);emph.masks.fill(65535);emph.bpm=180;for(unsigned i=0;i<1500;++i){++emph.seq;accent.render(emph,ab.data(),block);for(int v:ab)req(v>=-12000&&v<=12000,"accent stress headroom");}
+ row(emph,0,40,line.data()+1);req(std::count(line.begin()+1,line.end()-1,0xffe0)>50,"visible accent markers");
+ if(!dir.empty()){wav(dir+"/accent-off.wav",pa);wav(dir+"/accent-on.wav",aa);ppm(dir+"/accent-grid.ppm",emph,0);}
+ std::printf("Accent comparison peak=%d/%d changed=%u/%zu\n",ppeak,apeak,changed,pa.size());
  std::printf("PASS %u checks; Engine=%zu Surface=%zu Exchange=%zu bytes\n",checks,sizeof(Engine),sizeof(Surface),sizeof(Exchange));
 }
