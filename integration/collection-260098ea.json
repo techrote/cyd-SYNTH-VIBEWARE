@@ -1,0 +1,13 @@
+{
+  "head": "260098ea439ccd0f34fef26d454e89f31de0720e",
+  "tree": "2274b606cfd0e6cf8c503adeeff681e8eaed6602",
+  "apps": [
+    {"name":"PHASESPACE","run":46176139311,"artifact":15276005706,"sha256":"1c2f174d3d214d981a998c1d62b750474b7b0bedf96f9c6cde99cdb97f63606d","zip":"phasespace-windows.zip","zip_sha_file":"phasespace-windows.sha256","manifest":"SHA256SUMS.txt","exe":"phasespace.exe"},
+    {"name":"Xenoresonator","run":46176139309,"artifact":15275591688,"sha256":"05586d362b09b5d3de984de33695fee4b2a3357ffb91e2c9ec50801b7f0e32dc","zip":"Xenoresonator.zip","zip_sha_file":"Xenoresonator.sha256","manifest":"SHA256SUMS.txt","exe":"Xenoresonator.exe"},
+    {"name":"CHRONOGRID","run":46176139281,"artifact":15275269110,"sha256":"bd4c07ded004f2921e4bd288bacb8593a61e7af04a38e8ab62f89ad61ee6f69b","zip":"chronogrid-windows.zip","zip_sha_file":"chronogrid-windows.sha256","manifest":"manifest.sha256","single":true,"exe":"chronogrid.exe"},
+    {"name":"Chronomorph","run":46176139261,"artifact":15275568149,"sha256":"792f29cd94013cd5eb32e36696aebc988f1f0ccd09d9b3e51461f3334b746670","zip":"Chronomorph.zip","manifest":"SHA256SUMS.txt","exe":"Chronomorph.exe"},
+    {"name":"XENOBIO","run":46176139263,"artifact":15275736208,"sha256":"36e7e89b7f662a83792ed5d58de7a529878efa863c1eae83edc65a7afdb69fed","zip":"Xenobio-Windows.zip","zip_sha_file":"Xenobio-Windows.sha256","manifest":"manifest.sha256","single":true,"exe":"Xenobio.exe"},
+    {"name":"Ecophon","run":46176139251,"artifact":15275681368,"sha256":"516bffd6aa3c321443f7e62d61f2e768f523868da5c97020240019f61eb3b09c","zip":"Ecophon.zip","manifest":"SHA256SUMS.txt","exe":"Ecophon.exe"}
+  ],
+  "board": {"run":46176139249,"artifact":15275992757,"sha256":"73fd6d26a6893b0fce176a36d3d853cb91016ee0be45bdd75d63bc5113e51b71","profiles":["cyd-phasespace","cyd-chronogrid","cyd-port-xeno","cyd-port-chrono","cyd-xenobio","cyd-port-ecophon","cyd-port-ecophon-timer"]}
+}
