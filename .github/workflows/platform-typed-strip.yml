@@ -1,0 +1,44 @@
+name: PLATFORM typed strip target qualification
+on:
+  pull_request:
+    paths:
+      - 'platform/row-batch/typed_strip*'
+      - 'platform/row-batch/prepare_typed.py'
+      - '.github/workflows/platform-typed-strip.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 9f7b1ff5bead8d718befd1284b6bd4ae1a4b67ed
+          path: consumer
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -I consumer/instruments/chronogrid platform/row-batch/typed_strip_test.cpp -o typed-test
+          ./typed-test
+          python platform/row-batch/prepare_typed.py consumer
+      - run: python -m pip install platformio==6.1.18 intelhex==2.3.0
+      - run: |
+          set -o pipefail
+          mkdir -p target-receipt
+          git rev-parse HEAD > target-receipt/platform-source.txt
+          git -C consumer rev-parse HEAD > target-receipt/consumer-source.txt
+          git -C consumer diff > target-receipt/adapter.patch
+          cp platform/row-batch/typed_strip.hpp target-receipt/
+          pio run -d consumer/instruments/chronogrid/firmware -e cyd-chronogrid 2>&1 | tee target-receipt/build.log
+          pio pkg list -d consumer/instruments/chronogrid/firmware > target-receipt/toolchain.txt
+          cp consumer/instruments/chronogrid/firmware/.pio/build/cyd-chronogrid/firmware.map target-receipt/
+          sha256sum consumer/instruments/chronogrid/firmware/.pio/build/cyd-chronogrid/firmware.elf > target-receipt/elf-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-p4-target-receipt-not-installable
+          path: target-receipt/
+          if-no-files-found: warn
