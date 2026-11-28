@@ -1,4 +1,5 @@
 #include "checkpoint.hpp"
+#include "checkpoint_paced.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -61,6 +62,38 @@ int main(){
     check(!mixed.accept(p.data(),p.size(),1),"mixed digest");
     p=cp::encode(91,701,state,1);check(mixed.accept(p.data(),p.size(),2),"supersede");
     p=cp::encode(91,700,state,2);check(!mixed.accept(p.data(),p.size(),3),"old sequence");
+    // Pacing uses immutable bytes while the worker continues its own trajectory.
+    cp::PacedSender paced;
+    cp::Receiver paced_rx(91);
+    const uint32_t start_ms=0xffffffe0u;
+    check(worker.export_checkpoint(state),"paced reference");
+    const auto seq=worker.sequence();
+    check(paced.start(91,worker,start_ms)&&!paced.start(91,worker,start_ms),"single flight");
+    unsigned sent=0;
+    auto sink=[&](const cp::Packet& packet){
+        check(packet==cp::encode(91,seq,state,sent),"immutable paced wire");
+        ++sent;return true;
+    };
+    for(uint32_t ms=0;ms<60;++ms){
+        const auto now=start_ms+ms;
+        auto receive=[&](const cp::Packet& packet){
+            return sink(packet)&&paced_rx.accept(packet.data(),packet.size(),now);
+        };
+        if(ms%10==1)check(worker.advance(),"concurrent worker evolution");
+        const auto result=paced.poll(now,receive);
+        if(ms%5==0)check(result==(ms==55?cp::PacedSender::Result::complete:cp::PacedSender::Result::sent),"paced due");
+        else check(result==cp::PacedSender::Result::idle,"paced idle");
+        check(paced.poll(now,receive)==cp::PacedSender::Result::idle,"no same-time burst");
+    }
+    check(sent==cp::parts&&paced_rx.restore(local,seq),"paced complete");
+    check(local.export_checkpoint(actual)&&actual==state,"paced exact state");
+    check(paced.start(91,worker,100),"deadline start");
+    check(paced.poll(250,sink)==cp::PacedSender::Result::expired&&!paced.active(),"deadline abort");
+    check(paced.start(91,worker,300),"failed send start");
+    check(paced.poll(300,[](const cp::Packet&){return false;})==cp::PacedSender::Result::failed&&!paced.active(),"failed send abort");
+    check(paced.start(91,worker,400),"cancel start");paced.cancel();
+    check(paced.poll(400,sink)==cp::PacedSender::Result::idle,"cancel no send");
+    std::cout<<"paced_sender_bytes="<<sizeof(cp::PacedSender)<<'\\n';
     // Host only timing of complete encode/reassembly/restore; no sockets/radio.
     check(worker.export_checkpoint(state),"benchmark export");
     auto start=std::chrono::steady_clock::now();

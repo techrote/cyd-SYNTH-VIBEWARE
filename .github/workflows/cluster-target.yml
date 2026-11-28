@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field, cyd-dual, cyd-multi, cyd-multi-field, cyd-multi-field-bench, cyd-lan, s3-lan-worker, c3-lan-worker, cyd-ble-field, s3-ble-client, c3-ble-client, cyd-spatial, s3-spatial-worker, c3-spatial-worker, cyd-reaction, s3-reaction-worker, c3-reaction-worker]
+        profile: [cyd-coordinator, s3-worker, c3-worker, cyd-worker, cyd-field, cyd-dual, cyd-multi, cyd-multi-field, cyd-multi-field-bench, cyd-lan, s3-lan-worker, c3-lan-worker, cyd-ble-field, s3-ble-client, c3-ble-client, cyd-spatial, s3-spatial-worker, c3-spatial-worker, cyd-reaction, s3-reaction-worker, c3-reaction-worker, cyd-reaction-checkpoint, s3-reaction-checkpoint, c3-reaction-checkpoint]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
