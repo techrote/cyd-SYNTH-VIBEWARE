@@ -1,5 +1,9 @@
 # Scheduled engineering roster
 
+## Active deployment — owner-authorized 28 November 2026
+
+The [programme activation](https://github.com/techrote/cyd-SYNTH-VIBEWARE/issues/1#issuecomment-7232382620) supersedes the historical proposed schedule below. Five active lanes: PLATFORM/PERFORMANCE (#2, :09), PORT (#13, :18), TOUCH (#3–6, :38), HYBRID (#9, :45), QA/MERGEDOWN (#7, :49). PORT owns standalone FM-1 interpretations in instruments/fm1-ports/; TOUCH owns original instruments and rotates creative mandates; HYBRID owns cluster/ and distributed transport; PLATFORM owns optional shared runtime and measured optimization; QA independently qualifies, packages, and coordinates integration. Local adapters remain independently buildable. Draft/HOLD, no unsolicited main merge or physical deployment. Historical six/eight-lane plans below are not active rosters.
+
 Six workers are recommended initially, following FM-1-VIBEWARE's structure with a dedicated visual lane. Every creative worker owns implementation, actual interaction, presets/scenes, native and target adaptation, tests and documentation for its current instrument. No recurring research-only or report-only tasks.
 
 | Configuration | Workers | Roles |
