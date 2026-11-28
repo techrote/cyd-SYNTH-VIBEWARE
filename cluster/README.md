@@ -270,3 +270,20 @@ required, along with the portable handoff CTest, ASan/UBSan and PE checks.
 `cluster_checkpoint` proves exact completed-tick restoration of the 64x48 Q12 U/V planes and subsequent trajectory. The full state is 12,288 bytes, in twelve 1,048-byte datagrams (24-byte header plus 1,024-byte payload). Explicit little-endian format; separate RC v1 namespace from SF snapshots. Reassembly retains one sequence, rejects foreign epoch, corrupt/truncated/duplicate/older fragments and mixed digests, expires incomplete assembly 200 ms after first fragment, and cannot restore until complete. Full concentration validation precedes mutation; a suspended local tick may be discarded. Caller must authorize endpoint and decide whether completed checkpoint is sufficiently recent. FNV detects accidental corruption, not malicious modification. No clock alignment or automatic failover admission yet. No use over ESP-NOW.
 
 Run `cluster_checkpoint.exe` in the Windows package (or CTest `cluster_checkpoint`); this is a native in-process codec and trajectory proof, not a socket/radio test. It checks 60 restores and 1,140 future ticks against independent uninterrupted reference, plus invalid/expired assembly. The timing counter named host_200_roundtrip_us measures only encode/reassembly/restore in one process, not RTT; export excluded, whole-state hash currently repeated per fragment. Native receiver sizeof is 12,308 bytes on tested host, not target peak heap. Offered bytes if one checkpoint per second: 12,576 B/s plus existing 15,760 B/s projection stream; every 20 Hz tick would require 251,520 B/s plus projection, before UDP/IP/radio overhead. Prefer occasional checkpoints and bounded catch-up, compare against presentation-only handoff. Next: actual UDP loopback transport, freshness policy, loss/recovery and bounded integration with viewer; only then consider opt-in embedded measurement. M14 viewer and existing target profiles unchanged. No flash or owner physical evidence.
+
+### M16 — native checkpoint transfer and bounded continuation
+Run `python cluster/checkpoint_udp_test.py build/cluster/cluster_checkpoint_udp`
+(or use the extracted Windows exe and script). Separate localhost processes
+exchange existing SF presentation frames and RC checkpoint fragments; the
+worker sends reverse-order fragments, with a prepared whole-state digest.
+Fault mode duplicates fragments, leaves checkpoint 18 incomplete and omits
+snapshots 20–50. Receiver immediately admits complete fresh checkpoints into
+the suspended local engine (no rollback), retaining the last admitted state
+across incomplete transfers. Admission requires a fresh presentation sequence,
+a checkpoint no more than 20 ticks behind it and a completion lease of 200 ms.
+Loss catch-up uses at most one lattice slice per loop, only toward the last
+observed snapshot and only when the saved state is at most 600 ms old and
+20 ticks behind. Otherwise continue ordinary local simulation. Native harness
+compares complete local states against an independent reference; no radio,
+hardware, absolute clock/phase synchronization or speedup claim. This is a
+headless experiment; graphical and embedded integration remain separate.
