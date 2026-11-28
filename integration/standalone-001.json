@@ -1,5 +1,5 @@
 {
-  "schema": 6,
+  "schema": 7,
   "base": "bf08fb5a38a7fa692026af3bfb08943fb72506ef",
   "scope": "Standalone applications; no PLATFORM or HYBRID adoption",
   "predecessor": {
@@ -61,7 +61,7 @@
         "inner_sha256": "9aaa56b8a40709cb288f72bbaaf886b6e64c2f384c510b6531be9bf2c027eaa9",
         "result": "PASS extracted and clean rebuild at exact author pin; not new cumulative head"
       },
-      "target": "author PASS; independent M4 NOT RUN"
+      "target": "Author and independent exact M4 source compile/link PASS, QA batch007 target job 140924829969"
     },
     {
       "pr": 19,
@@ -72,7 +72,7 @@
       "author_jobs_passed": 3,
       "windows_artifact": 15254564233,
       "target_artifact": 15255493687,
-      "independent_qa": "M4 pending; frozen M3 independently passed Windows job 140911044205, source a42f33ecd37628fc6db64f0f0ffafc333f82af6d; archive 15254076393. M4 fixes held-gesture panic; do not transfer M3 PASS."
+      "independent_qa": "Batch007 author M4 Windows archive extracted and clean rebuilt PASS, 1764 panic positions zero failures; integrated Windows packaging repair still pending"
     }
   ],
   "workflow_overrides": [
@@ -81,30 +81,17 @@
     ".github/workflows/chronogrid.yml",
     ".github/workflows/port-chronomorph.yml"
   ],
-  "integration_gate": "PENDING_NEW_EXACT_HEAD_CI",
+  "integration_gate": "PENDING_REPAIRED_EXACT_HEAD_CI",
   "physical_gate": "HOLD",
-  "qa_gate": "PENDING_EXACT_HEAD_WINDOWS_AND_TARGET_QA",
+  "qa_gate": "FROZEN_CHECKPOINT006_INDEPENDENT_TARGET_PASS_AND_CHRONOMORPH_AUTHOR_WINDOWS_PASS; REPAIRED_EXACT_HEAD_PENDING",
   "owner_gate": "HOLD",
-  "changed_source_paths": [
-    "instruments/chronogrid/README.md",
-    "instruments/chronogrid/core.hpp",
-    "instruments/chronogrid/replay.cpp",
-    "instruments/fm1-ports/chronomorph/README.md",
-    "instruments/fm1-ports/chronomorph/core.hpp",
-    "instruments/fm1-ports/chronomorph/platformio.ini",
-    "instruments/fm1-ports/chronomorph/replay.cpp",
-    "instruments/fm1-ports/chronomorph/runtime.hpp",
-    "instruments/fm1-ports/chronomorph/runtime_test.cpp",
-    "instruments/fm1-ports/chronomorph/target/main.cpp",
-    "instruments/fm1-ports/chronomorph/target_gate.hpp",
-    "instruments/fm1-ports/chronomorph/target_gate_test.cpp",
-    "instruments/fm1-ports/chronomorph/windows.cpp"
-  ],
+  "changed_source_paths": [],
   "repairs": [
     "explicit PR head checkout on PHASESPACE/Xenoresonator; add target source commit/tree and payload manifest; refuse missing map or artifact; preserve map-only engineering evidence",
     "Explicit intelhex==2.3.0 bootstrap/import preflight and isolated PlatformIO core directory for Xeno target; author log 140879176811 installed same version automatically, independent shared-environment job 140883371230 failed to import it. QA independently owns cross-profile rebuild repair.",
     "M3 ratio controls and independent replay incorporated unchanged; retain stronger integrated target receipt workflow rather than author workflow.",
-    "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending."
+    "Integrate exact CHRONOGRID M4 and Chronomorph M4 with separate author lineage. Chronomorph integration verifies extracted payload checksum coverage before replay and target evidence manifest, nonempty map, isolated PIO and IntelHex import. M4 independent QA pending.",
+    "Checkpoint 007: accept exactly GNU text and binary markers in Chronomorph extracted SHA256SUMS parser. Exercise two positive and five negative format fixtures in the same PowerShell step; retain path, duplicate, hash and completeness gates. JS-equivalent regex fixtures passed; actual PowerShell execution pending Windows CI."
   ],
   "prior_receipts": {
     "m3_head": "225be00c601d8aeec93c9051483f2b6b2cc3beb5",
@@ -183,5 +170,43 @@
       15254251090
     ],
     "artifact_verification": "GitHub metadata/digests and job conclusions; not direct archive extraction"
+  },
+  "checkpoint006": {
+    "head": "775d9397b11f944344d1aefaf216c6451b994d36",
+    "tree": "7f6a85590f2f733e6f7373068bfd58e6405f7352",
+    "author_integration_runs": [
+      46126200767,
+      46126200823,
+      46126200770,
+      46126200808
+    ],
+    "jobs_passed": 13,
+    "jobs_failed": 1,
+    "failed_job": 140921228930,
+    "failed_gate": "Chronomorph extracted manifest parser rejects GNU sha256sum binary marker; pre-extraction core and runtime tests passed; no integrated Windows artifact",
+    "windows_artifacts": [
+      15255549321,
+      15255906681,
+      15256150052
+    ],
+    "target_artifacts": [
+      15255727397,
+      15255623020,
+      15255084407,
+      15255951741
+    ],
+    "independent_qa": {
+      "head": "ed676b0909c44159bdd4221565a987dbe8d196ca",
+      "run": 46127366662,
+      "windows_job": 140924829763,
+      "target_job": 140924829969,
+      "chrono_author_archive": 15254564233,
+      "chrono_inner_sha256": "2f09e4b52f559d53997eb7d328b6921a1f3a53c406c6955a10bbc54e70d6b6be",
+      "panic_matrix_positions": 1764,
+      "panic_matrix_failures": 0,
+      "target_artifact": 15255964310,
+      "target_result": "all four compile/link PASS at frozen integrated 775d9397 and author Grid c0a866a7; not physical qualification",
+      "limitation": "independent Windows replay of author Chronomorph archive, not failed integrated archive; source unchanged in repair"
+    }
   }
 }
